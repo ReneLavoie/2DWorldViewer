@@ -1,64 +1,213 @@
 import { injectable } from 'inversify';
 import { GameObject } from './GameObject';
 
+export const KIND_IDLE = 0;
+export const KIND_LINEAR = 1;
+export const KIND_SINUSOIDAL = 2;
+export const KIND_CIRCULAR = 3;
+export const KIND_SPIN = 4;
+
+const INITIAL_CAPACITY = 1024;
+
 @injectable()
 export class World {
-  private readonly _items: GameObject[] = [];
-  private readonly indexById = new Map<number, number>();
+  private _objects: GameObject[] = [];
+  private indexById = new Map<number, number>();
 
-  // Per-frame dirty counter incremented by TransformSystem / BehaviorSystem when
-  // they actually mutate a transform. CameraSystem / index.ts read this to
-  // decide whether to rebuild the spatial index and re-render this frame.
+  capacity = 0;
+  size = 0;
+
+  tx!: Float32Array;
+  ty!: Float32Array;
+  trot!: Float32Array;
+  tsx!: Float32Array;
+  tsy!: Float32Array;
+  tw!: Float32Array;
+  th!: Float32Array;
+  tvx!: Float32Array;
+  tvy!: Float32Array;
+  tvr!: Float32Array;
+  tdirty!: Uint8Array;
+
+  bkind!: Uint8Array;
+  belapsed!: Float32Array;
+  bspeed!: Float32Array;
+  bamp!: Float32Array;
+  bfreq!: Float32Array;
+  brad!: Float32Array;
+  boriX!: Float32Array;
+  boriY!: Float32Array;
+  bphase!: Float32Array;
+
+  cellIdx!: Int32Array;
+  cellPrev!: Int32Array;
+  cellNext!: Int32Array;
+
+  sinIds!: Int32Array;
+  sinCount = 0;
+  circIds!: Int32Array;
+  circCount = 0;
+  movingIds!: Int32Array;
+  movingCount = 0;
+
   dirtyTransforms = 0;
-  // Set when objects are added/removed (the spatial index must be rebuilt at
-  // least once after any structural change).
   structuralDirty = true;
 
-  get items(): readonly GameObject[] {
-    return this._items;
+  constructor() {
+    this.allocate(INITIAL_CAPACITY);
+  }
+
+  private allocate(cap: number): void {
+    this.capacity = cap;
+    this.tx = new Float32Array(cap);
+    this.ty = new Float32Array(cap);
+    this.trot = new Float32Array(cap);
+    this.tsx = new Float32Array(cap);
+    this.tsy = new Float32Array(cap);
+    this.tw = new Float32Array(cap);
+    this.th = new Float32Array(cap);
+    this.tvx = new Float32Array(cap);
+    this.tvy = new Float32Array(cap);
+    this.tvr = new Float32Array(cap);
+    this.tdirty = new Uint8Array(cap);
+
+    this.bkind = new Uint8Array(cap);
+    this.belapsed = new Float32Array(cap);
+    this.bspeed = new Float32Array(cap);
+    this.bamp = new Float32Array(cap);
+    this.bfreq = new Float32Array(cap);
+    this.brad = new Float32Array(cap);
+    this.boriX = new Float32Array(cap);
+    this.boriY = new Float32Array(cap);
+    this.bphase = new Float32Array(cap);
+
+    this.cellIdx = new Int32Array(cap);
+    this.cellPrev = new Int32Array(cap);
+    this.cellNext = new Int32Array(cap);
+    this.cellIdx.fill(-1);
+    this.cellPrev.fill(-1);
+    this.cellNext.fill(-1);
+
+    this.sinIds = new Int32Array(cap);
+    this.circIds = new Int32Array(cap);
+    this.movingIds = new Int32Array(cap);
+  }
+
+  reserve(min: number): void {
+    if (min <= this.capacity) return;
+    let next = this.capacity;
+    while (next < min) next *= 2;
+    this.growTo(next);
+  }
+
+  private growTo(next: number): void {
+    const grow32 = (a: Float32Array): Float32Array => {
+      const n = new Float32Array(next);
+      n.set(a);
+      return n;
+    };
+    const grow8 = (a: Uint8Array): Uint8Array => {
+      const n = new Uint8Array(next);
+      n.set(a);
+      return n;
+    };
+    const growI = (a: Int32Array, fill = 0): Int32Array => {
+      const n = new Int32Array(next);
+      n.set(a);
+      if (fill !== 0) n.fill(fill, a.length);
+      return n;
+    };
+    this.tx = grow32(this.tx);
+    this.ty = grow32(this.ty);
+    this.trot = grow32(this.trot);
+    this.tsx = grow32(this.tsx);
+    this.tsy = grow32(this.tsy);
+    this.tw = grow32(this.tw);
+    this.th = grow32(this.th);
+    this.tvx = grow32(this.tvx);
+    this.tvy = grow32(this.tvy);
+    this.tvr = grow32(this.tvr);
+    this.tdirty = grow8(this.tdirty);
+
+    this.bkind = grow8(this.bkind);
+    this.belapsed = grow32(this.belapsed);
+    this.bspeed = grow32(this.bspeed);
+    this.bamp = grow32(this.bamp);
+    this.bfreq = grow32(this.bfreq);
+    this.brad = grow32(this.brad);
+    this.boriX = grow32(this.boriX);
+    this.boriY = grow32(this.boriY);
+    this.bphase = grow32(this.bphase);
+
+    this.cellIdx = growI(this.cellIdx, -1);
+    this.cellPrev = growI(this.cellPrev, -1);
+    this.cellNext = growI(this.cellNext, -1);
+
+    this.sinIds = growI(this.sinIds);
+    this.circIds = growI(this.circIds);
+    this.movingIds = growI(this.movingIds);
+
+    this.capacity = next;
+  }
+
+  allocateSlot(obj: GameObject): number {
+    if (this.indexById.has(obj.id)) return this.indexById.get(obj.id)!;
+    const idx = this.size;
+    if (idx >= this.capacity) this.reserve(idx + 1);
+    this._objects[idx] = obj;
+    this.indexById.set(obj.id, idx);
+    obj.index = idx;
+    this.size = idx + 1;
+    this.cellIdx[idx] = -1;
+    this.cellPrev[idx] = -1;
+    this.cellNext[idx] = -1;
+    this.structuralDirty = true;
+    return idx;
+  }
+
+  rebuildPackedLists(): void {
+    const n = this.size;
+    const bkind = this.bkind;
+    const tvx = this.tvx;
+    const tvy = this.tvy;
+    const tvr = this.tvr;
+    const sinIds = this.sinIds;
+    const circIds = this.circIds;
+    const movingIds = this.movingIds;
+    let sc = 0;
+    let cc = 0;
+    let mc = 0;
+    for (let i = 0; i < n; i++) {
+      const k = bkind[i];
+      if (k === KIND_SINUSOIDAL) sinIds[sc++] = i;
+      else if (k === KIND_CIRCULAR) circIds[cc++] = i;
+      if (tvx[i] !== 0 || tvy[i] !== 0 || tvr[i] !== 0) movingIds[mc++] = i;
+    }
+    this.sinCount = sc;
+    this.circCount = cc;
+    this.movingCount = mc;
+  }
+
+  get objects(): readonly GameObject[] {
+    return this._objects;
   }
 
   add(obj: GameObject): void {
     if (this.indexById.has(obj.id)) return;
-    this.indexById.set(obj.id, this._items.length);
-    this._items.push(obj);
-    this.structuralDirty = true;
-  }
-
-  remove(id: number): void {
-    const idx = this.indexById.get(id);
-    if (idx === undefined) return;
-    const last = this._items.length - 1;
-    if (idx !== last) {
-      const swapped = this._items[last];
-      this._items[idx] = swapped;
-      this.indexById.set(swapped.id, idx);
-    }
-    this._items.pop();
-    this.indexById.delete(id);
-    this.structuralDirty = true;
+    this.allocateSlot(obj);
   }
 
   get(id: number): GameObject | undefined {
     const idx = this.indexById.get(id);
-    return idx === undefined ? undefined : this._items[idx];
+    return idx === undefined ? undefined : this._objects[idx];
   }
 
   has(id: number): boolean {
     return this.indexById.has(id);
   }
 
-  forEach(cb: (obj: GameObject) => void): void {
-    const arr = this._items;
-    for (let i = 0, n = arr.length; i < n; i++) cb(arr[i]);
-  }
-
   count(): number {
-    return this._items.length;
-  }
-
-  size(): number {
-    return this._items.length;
+    return this.size;
   }
 
   resetFrameDirty(): void {
@@ -67,8 +216,12 @@ export class World {
   }
 
   clear(): void {
-    this._items.length = 0;
+    this._objects.length = 0;
     this.indexById.clear();
+    this.size = 0;
+    this.sinCount = 0;
+    this.circCount = 0;
+    this.movingCount = 0;
     this.structuralDirty = true;
   }
 }

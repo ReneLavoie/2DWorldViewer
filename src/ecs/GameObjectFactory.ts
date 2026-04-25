@@ -1,14 +1,16 @@
-import { injectable } from 'inversify';
+import { inject, injectable } from 'inversify';
 import { Texture } from 'pixi.js';
+import { TYPES } from '../di/types';
 import { GameObject } from './GameObject';
-import { TransformComponent } from './components/TransformComponent';
 import { RendererComponent } from './components/RendererComponent';
-import {
-  BehaviorComponent,
-  BehaviorDescriptor,
-  BehaviorKind,
-} from './components/BehaviorComponent';
 import { Bounds } from '../spatial/Quadtree';
+import {
+  World,
+  KIND_LINEAR,
+  KIND_SINUSOIDAL,
+  KIND_CIRCULAR,
+  KIND_SPIN,
+} from './World';
 
 export interface FactoryOptions {
   textures: Texture[];
@@ -17,163 +19,135 @@ export interface FactoryOptions {
   maxSize?: number;
 }
 
-const BEHAVIORS: BehaviorKind[] = [
-  'linear',
-  'sinusoidal',
-  'circular',
-  'spin',
-];
-
-function rand(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
-
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
+const BEHAVIOR_CODES = [KIND_LINEAR, KIND_SINUSOIDAL, KIND_CIRCULAR, KIND_SPIN];
 
 @injectable()
 export class GameObjectFactory {
   private readonly objectPool: GameObject[] = [];
-  private readonly transformPool: TransformComponent[] = [];
   private readonly rendererPool: RendererComponent[] = [];
-  private readonly behaviorPool: BehaviorComponent[] = [];
 
-  create(opts: FactoryOptions): GameObject {
-    if (!opts.textures || opts.textures.length === 0) {
+  constructor(
+    @inject(TYPES.World) private readonly world: World,
+  ) {}
+
+  private createInto(opts: FactoryOptions): GameObject {
+    const textures = opts.textures;
+    if (!textures || textures.length === 0) {
       throw new Error('GameObjectFactory.create requires at least one texture');
     }
+    const world = this.world;
 
-    const obj = this.acquireObject();
+    const obj = this.objectPool.pop() ?? new GameObject();
+    if (obj.index === -1) world.allocateSlot(obj);
+    const i = obj.index;
 
     const minSize = opts.minSize ?? 24;
     const maxSize = opts.maxSize ?? 64;
-    const size = rand(minSize, maxSize);
+    const size = minSize + Math.random() * (maxSize - minSize);
+    const bx = opts.worldBounds.x;
+    const by = opts.worldBounds.y;
+    const bw = opts.worldBounds.width;
+    const bh = opts.worldBounds.height;
 
-    const t = this.acquireTransform();
-    t.x = rand(opts.worldBounds.x, opts.worldBounds.x + opts.worldBounds.width);
-    t.y = rand(opts.worldBounds.y, opts.worldBounds.y + opts.worldBounds.height);
-    t.width = size;
-    t.height = size;
-    t.scaleX = rand(0.8, 1.2);
-    t.scaleY = rand(0.8, 1.2);
-    t.rotation = rand(0, Math.PI * 2);
-    t.vx = 0;
-    t.vy = 0;
-    t.vr = 0;
-    t.dirty = true;
-    obj.addComponent(t);
+    world.tx[i] = bx + Math.random() * bw;
+    world.ty[i] = by + Math.random() * bh;
+    world.tw[i] = size;
+    world.th[i] = size;
+    world.tsx[i] = 0.8 + Math.random() * 0.4;
+    world.tsy[i] = 0.8 + Math.random() * 0.4;
+    world.trot[i] = Math.random() * Math.PI * 2;
+    world.tvx[i] = 0;
+    world.tvy[i] = 0;
+    world.tvr[i] = 0;
+    world.tdirty[i] = 1;
 
-    const r = this.acquireRenderer();
-    r.texture = pick(opts.textures);
-    r.tint = Math.floor(Math.random() * 0xffffff);
+    const r = this.rendererPool.pop() ?? new RendererComponent({ texture: Texture.WHITE });
+    r.texture = textures[(Math.random() * textures.length) | 0];
+    r.tint = (Math.random() * 0xffffff) | 0;
     r.alpha = 1;
     r.anchorX = 0.5;
     r.anchorY = 0.5;
-    r.zIndex = Math.floor(rand(0, 10));
-    obj.addComponent(r);
+    r.zIndex = (Math.random() * 10) | 0;
+    obj.renderer = r;
 
-    const kind = pick(BEHAVIORS);
-    const b = this.acquireBehavior();
-    const descriptor: BehaviorDescriptor = b.descriptor;
-    descriptor.kind = kind;
-    descriptor.speed = undefined;
-    descriptor.amplitude = undefined;
-    descriptor.frequency = undefined;
-    descriptor.radius = undefined;
-    descriptor.originX = undefined;
-    descriptor.originY = undefined;
-    descriptor.phase = undefined;
-    descriptor.direction = undefined;
-    b.elapsed = 0;
+    const kind = BEHAVIOR_CODES[(Math.random() * BEHAVIOR_CODES.length) | 0];
+    world.bkind[i] = kind;
+    world.belapsed[i] = 0;
+    world.bspeed[i] = 0;
+    world.bamp[i] = 0;
+    world.bfreq[i] = 0;
+    world.brad[i] = 0;
+    world.boriX[i] = 0;
+    world.boriY[i] = 0;
+    world.bphase[i] = 0;
 
-    switch (kind) {
-      case 'linear': {
-        const speed = rand(20, 120);
-        const direction = rand(0, Math.PI * 2);
-        descriptor.speed = speed;
-        descriptor.direction = direction;
-        t.vx = Math.cos(direction) * speed;
-        t.vy = Math.sin(direction) * speed;
-        break;
-      }
-      case 'sinusoidal':
-        descriptor.speed = rand(20, 80);
-        descriptor.amplitude = rand(20, 80);
-        descriptor.frequency = rand(0.2, 1.5);
-        descriptor.phase = rand(0, Math.PI * 2);
-        break;
-      case 'circular':
-        descriptor.radius = rand(30, 120);
-        descriptor.frequency = rand(0.1, 0.8);
-        descriptor.originX = t.x;
-        descriptor.originY = t.y;
-        descriptor.phase = rand(0, Math.PI * 2);
-        break;
-      case 'spin': {
-        const spinSpeed = rand(-3, 3);
-        descriptor.speed = spinSpeed;
-        t.vr = spinSpeed;
-        break;
-      }
+    if (kind === KIND_LINEAR) {
+      const speed = 20 + Math.random() * 100;
+      const direction = Math.random() * Math.PI * 2;
+      world.bspeed[i] = speed;
+      world.tvx[i] = Math.cos(direction) * speed;
+      world.tvy[i] = Math.sin(direction) * speed;
+    } else if (kind === KIND_SINUSOIDAL) {
+      world.bspeed[i] = 20 + Math.random() * 60;
+      world.bamp[i] = 20 + Math.random() * 60;
+      world.bfreq[i] = 0.2 + Math.random() * 1.3;
+      world.bphase[i] = Math.random() * Math.PI * 2;
+    } else if (kind === KIND_CIRCULAR) {
+      world.brad[i] = 30 + Math.random() * 90;
+      world.bfreq[i] = 0.1 + Math.random() * 0.7;
+      world.boriX[i] = world.tx[i];
+      world.boriY[i] = world.ty[i];
+      world.bphase[i] = Math.random() * Math.PI * 2;
+    } else if (kind === KIND_SPIN) {
+      const spinSpeed = -3 + Math.random() * 6;
+      world.bspeed[i] = spinSpeed;
+      world.tvr[i] = spinSpeed;
     }
-    obj.addComponent(b);
 
     return obj;
   }
 
+  create(opts: FactoryOptions): GameObject {
+    const obj = this.createInto(opts);
+    this.world.rebuildPackedLists();
+    return obj;
+  }
+
   createMany(count: number, opts: FactoryOptions): GameObject[] {
+    const world = this.world;
+    world.reserve(world.size + count);
     const out: GameObject[] = new Array(count);
-    // Stratified (jittered-grid) placement: guarantees even coverage of the
-    // entire world, eliminating the clumpy/empty regions that arise with
-    // pure uniform-random sampling at low density.
-    const cols = Math.max(1, Math.ceil(Math.sqrt(count * (opts.worldBounds.width / opts.worldBounds.height))));
-    const rows = Math.max(1, Math.ceil(count / cols));
-    const cellW = opts.worldBounds.width / cols;
-    const cellH = opts.worldBounds.height / rows;
+
+    const bw = opts.worldBounds.width;
+    const bh = opts.worldBounds.height;
+    const cols = Math.max(1, Math.ceil(Math.sqrt(count * (bw / bh))));
+    const cellW = bw / cols;
+    const cellH = bh / Math.max(1, Math.ceil(count / cols));
     const baseX = opts.worldBounds.x;
     const baseY = opts.worldBounds.y;
 
-    for (let i = 0; i < count; i++) {
-      const obj = this.create(opts);
-      const cx = i % cols;
-      const cy = (i / cols) | 0;
-      const t = obj.transform!;
-      t.x = baseX + (cx + Math.random()) * cellW;
-      t.y = baseY + (cy + Math.random()) * cellH;
-      // Re-anchor circular behaviors to their new (post-stratified) position.
-      const b = obj.behavior;
-      if (b && b.descriptor.kind === 'circular') {
-        b.descriptor.originX = t.x;
-        b.descriptor.originY = t.y;
+    for (let n = 0; n < count; n++) {
+      const obj = this.createInto(opts);
+      const i = obj.index;
+      const cx = n % cols;
+      const cy = (n / cols) | 0;
+      world.tx[i] = baseX + (cx + Math.random()) * cellW;
+      world.ty[i] = baseY + (cy + Math.random()) * cellH;
+      if (world.bkind[i] === KIND_CIRCULAR) {
+        world.boriX[i] = world.tx[i];
+        world.boriY[i] = world.ty[i];
       }
-      out[i] = obj;
+      out[n] = obj;
     }
+
+    world.rebuildPackedLists();
     return out;
   }
 
   release(obj: GameObject): void {
-    if (obj.transform) this.transformPool.push(obj.transform);
     if (obj.renderer) this.rendererPool.push(obj.renderer);
-    if (obj.behavior) this.behaviorPool.push(obj.behavior);
     obj.reset();
     obj.id = GameObject.nextId();
     this.objectPool.push(obj);
-  }
-
-  private acquireObject(): GameObject {
-    return this.objectPool.pop() ?? new GameObject();
-  }
-
-  private acquireTransform(): TransformComponent {
-    return this.transformPool.pop() ?? new TransformComponent();
-  }
-
-  private acquireRenderer(): RendererComponent {
-    return this.rendererPool.pop() ?? new RendererComponent({ texture: Texture.WHITE });
-  }
-
-  private acquireBehavior(): BehaviorComponent {
-    return this.behaviorPool.pop() ?? new BehaviorComponent({ kind: 'idle' });
   }
 }

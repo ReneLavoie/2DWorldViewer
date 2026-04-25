@@ -76,12 +76,14 @@ async function init() {
   rendering.setZBucketCount(10);
   rendering.prewarmSprites(2048);
 
-  const OBJECT_COUNT = 100_000;
-  const gameObjects = factory.createMany(OBJECT_COUNT, {
+  const OBJECT_COUNT = 1_000_000;
+  factory.createMany(OBJECT_COUNT, {
     worldBounds,
     textures: gameObjTextures,
   });
-  for (const go of gameObjects) world.add(go);
+  // Bulk-insert all entities into the spatial grid once. Subsequent frames
+  // only re-bucket entities whose transform actually changed.
+  quadtree.rebuildAll();
 
   cameraController.attach(canvas, uiOverlay, () => world.count());
 
@@ -92,14 +94,11 @@ async function init() {
     behaviorSystem.update(world, dt);
     transformSystem.update(world, dt);
 
-    // Frame-coherent skip: if no transforms moved, no objects were added/
-    // removed, AND the camera state is unchanged, skip both the spatial
-    // rebuild and the render — the previous frame's display is still correct.
     const transformsDirty = world.dirtyTransforms > 0 || world.structuralDirty;
     const cameraDirty = camera.isDirty();
 
     if (transformsDirty) {
-      quadtree.rebuild(world);
+      quadtree.update();
     }
     if (transformsDirty || cameraDirty) {
       camera.update(world);

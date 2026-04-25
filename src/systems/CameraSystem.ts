@@ -4,7 +4,6 @@ import { World } from '../ecs/World';
 import { QuadtreeSystem } from '../spatial/QuadtreeSystem';
 import { RenderingSystem } from './RenderingSystem';
 import { BackgroundSystem } from './BackgroundSystem';
-import { QuadtreeItem } from '../spatial/Quadtree';
 
 @injectable()
 export class CameraSystem {
@@ -21,16 +20,12 @@ export class CameraSystem {
   private boundsH = Infinity;
   private hasBounds = false;
 
-  // Frame-coherent skip support: bump `dirty` whenever the camera moves /
-  // resizes / zooms. CameraSystem.update() consumes this flag.
   private dirty = true;
   private lastX = Number.NaN;
   private lastY = Number.NaN;
   private lastZoom = Number.NaN;
   private lastW = 0;
   private lastH = 0;
-
-  private readonly visibleBuf: QuadtreeItem[] = [];
 
   constructor(
     @inject(TYPES.QuadtreeSystem) private readonly quadtree: QuadtreeSystem,
@@ -108,7 +103,6 @@ export class CameraSystem {
     return this.height / this.zoom;
   }
 
-  // Returns true if camera state changed since last sampled.
   isDirty(): boolean {
     if (this.dirty) return true;
     return (
@@ -138,11 +132,12 @@ export class CameraSystem {
     const w = vw + pad * 2;
     const h = vh + pad * 2;
 
-    const items = this.quadtree.query(vx, vy, w, h, this.visibleBuf);
+    const slots = this.quadtree.query(vx, vy, w, h);
+    const count = this.quadtree.visibleCount();
 
     this.background.setCamera(this.x, this.y, this.zoom);
     this.rendering.setCameraTransform(this.x, this.y, this.zoom);
-    this.rendering.renderItems(items);
+    this.rendering.renderSlots(slots, count);
 
     this.snapshot();
   }

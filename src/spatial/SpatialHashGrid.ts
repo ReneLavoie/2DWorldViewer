@@ -1,10 +1,12 @@
-import type { Bounds, QuadtreeItem } from './Quadtree';
+import type { Bounds } from './Quadtree';
+import type { World } from '../ecs/World';
 
-// Uniform spatial hash grid optimized for 100k+ moving point-like items.
-// - Items are bucketed by their AABB center into a single cell.
-// - Queries pad the search rect by `maxItemSize` so off-cell straddlers are still
-//   discovered without inserting one item into multiple cells.
-// - All per-frame state lives in pre-sized typed arrays. No per-frame allocations.
+// Incremental uniform spatial hash grid backed by typed arrays.
+// - Each entity is bucketed by AABB-center into one cell.
+// - Doubly-linked list per cell uses World's cellPrev/cellNext arrays so
+//   re-bucketing is O(1) without any allocation.
+// - Insert/update is a no-op when the entity stays in the same cell.
+// - Queries return slot indices into World's SoA.
 export class SpatialHashGrid {
   private cellSize: number;
   private invCellSize: number;
@@ -13,23 +15,21 @@ export class SpatialHashGrid {
   private originX = 0;
   private originY = 0;
 
-  // Linked list of items per cell. cellHead[c] -> first item slot index, or -1.
+  // cellHead[c] = first slot in cell c, or -1.
   private cellHead: Int32Array = new Int32Array(0);
-  // Parallel-with-itemRefs: next item slot index for the same cell, or -1.
-  private itemNext: Int32Array = new Int32Array(0);
-  private itemRefs: (QuadtreeItem | null)[] = [];
-  private capacity = 0;
-  private count = 0;
 
-  // Largest item half-size seen this frame (used to pad queries).
+  // Largest item half-extent ever inserted; used to pad queries.
   private maxHalfW = 0;
   private maxHalfH = 0;
 
-  constructor(bounds: Bounds, cellSize = 128, initialCapacity = 1024) {
+  constructor(
+    private readonly world: World,
+    bounds: Bounds,
+    cellSize = 256,
+  ) {
     this.cellSize = cellSize;
     this.invCellSize = 1 / cellSize;
     this.setBounds(bounds);
-    this.ensureCapacity(initialCapacity);
   }
 
   setBounds(bounds: Bounds): void {
@@ -39,6 +39,15 @@ export class SpatialHashGrid {
     this.rows = Math.max(1, Math.ceil(bounds.height * this.invCellSize));
     this.cellHead = new Int32Array(this.cols * this.rows);
     this.cellHead.fill(-1);
+    // Reset all slot cell indices since cell numbering changed.
+    const w = this.world;
+    if (w.size > 0) {
+      w.cellIdx.fill(-1, 0, w.size);
+      w.cellPrev.fill(-1, 0, w.size);
+      w.cellNext.fill(-1, 0, w.size);
+    }
+    this.maxHalfW = 0;
+    this.maxHalfH = 0;
   }
 
   setCellSize(cellSize: number): void {
@@ -46,42 +55,63 @@ export class SpatialHashGrid {
     this.invCellSize = 1 / cellSize;
   }
 
-  // Reset all cells. Capacity / item arrays are preserved.
-  begin(): void {
-    this.cellHead.fill(-1);
-    this.count = 0;
-    this.maxHalfW = 0;
-    this.maxHalfH = 0;
-  }
-
-  insert(item: QuadtreeItem): void {
-    const slot = this.count;
-    if (slot >= this.capacity) this.ensureCapacity(slot + 1);
-
-    const cx = (item.x + item.w * 0.5 - this.originX) * this.invCellSize;
-    const cy = (item.y + item.h * 0.5 - this.originY) * this.invCellSize;
-    let ix = cx | 0;
-    let iy = cy | 0;
+  // Compute the cell index for a world-space point. Clamps to grid bounds.
+  private cellAt(x: number, y: number): number {
+    let ix = ((x - this.originX) * this.invCellSize) | 0;
+    let iy = ((y - this.originY) * this.invCellSize) | 0;
     if (ix < 0) ix = 0; else if (ix >= this.cols) ix = this.cols - 1;
     if (iy < 0) iy = 0; else if (iy >= this.rows) iy = this.rows - 1;
-    const cell = iy * this.cols + ix;
-
-    this.itemRefs[slot] = item;
-    this.itemNext[slot] = this.cellHead[cell];
-    this.cellHead[cell] = slot;
-    this.count = slot + 1;
-
-    const hw = item.w * 0.5;
-    const hh = item.h * 0.5;
-    if (hw > this.maxHalfW) this.maxHalfW = hw;
-    if (hh > this.maxHalfH) this.maxHalfH = hh;
+    return iy * this.cols + ix;
   }
 
-  query(rx: number, ry: number, rw: number, rh: number, out: QuadtreeItem[]): QuadtreeItem[] {
-    out.length = 0;
-    if (this.count === 0) return out;
+  // Insert or relocate a slot. Use the AABB centre and half-extents.
+  update(slot: number, cx: number, cy: number, hw: number, hh: number): void {
+    if (hw > this.maxHalfW) this.maxHalfW = hw;
+    if (hh > this.maxHalfH) this.maxHalfH = hh;
 
-    // Expand by largest item half-extent so center-bucketed items are not missed.
+    const newCell = this.cellAt(cx, cy);
+    const w = this.world;
+    const oldCell = w.cellIdx[slot];
+    if (oldCell === newCell) return;
+
+    // Unlink from old cell if present.
+    if (oldCell !== -1) {
+      const prev = w.cellPrev[slot];
+      const next = w.cellNext[slot];
+      if (prev !== -1) w.cellNext[prev] = next;
+      else this.cellHead[oldCell] = next;
+      if (next !== -1) w.cellPrev[next] = prev;
+    }
+
+    // Link into head of new cell.
+    const head = this.cellHead[newCell];
+    w.cellPrev[slot] = -1;
+    w.cellNext[slot] = head;
+    if (head !== -1) w.cellPrev[head] = slot;
+    this.cellHead[newCell] = slot;
+    w.cellIdx[slot] = newCell;
+  }
+
+  remove(slot: number): void {
+    const w = this.world;
+    const cell = w.cellIdx[slot];
+    if (cell === -1) return;
+    const prev = w.cellPrev[slot];
+    const next = w.cellNext[slot];
+    if (prev !== -1) w.cellNext[prev] = next;
+    else this.cellHead[cell] = next;
+    if (next !== -1) w.cellPrev[next] = prev;
+    w.cellIdx[slot] = -1;
+    w.cellPrev[slot] = -1;
+    w.cellNext[slot] = -1;
+  }
+
+  // Append slot indices whose AABB overlaps the given rect into outSlots[0..n).
+  // Returns the count written. outSlots must be a preallocated Int32Array
+  // (caller can grow it via ensureCapacity-style logic).
+  query(rx: number, ry: number, rw: number, rh: number, outSlots: Int32Array): number {
+    if (this.world.size === 0) return 0;
+
     const padX = this.maxHalfW;
     const padY = this.maxHalfH;
     const qx0 = rx - padX;
@@ -93,47 +123,45 @@ export class SpatialHashGrid {
     let cy0 = ((qy0 - this.originY) * this.invCellSize) | 0;
     let cx1 = ((qx1 - this.originX) * this.invCellSize) | 0;
     let cy1 = ((qy1 - this.originY) * this.invCellSize) | 0;
-
     if (cx0 < 0) cx0 = 0;
     if (cy0 < 0) cy0 = 0;
     if (cx1 >= this.cols) cx1 = this.cols - 1;
     if (cy1 >= this.rows) cy1 = this.rows - 1;
-    if (cx1 < cx0 || cy1 < cy0) return out;
+    if (cx1 < cx0 || cy1 < cy0) return 0;
 
     const cellHead = this.cellHead;
-    const itemNext = this.itemNext;
-    const itemRefs = this.itemRefs;
+    const cellNext = this.world.cellNext;
+    const tx = this.world.tx;
+    const ty = this.world.ty;
+    const tw = this.world.tw;
+    const th = this.world.th;
+    const tsx = this.world.tsx;
+    const tsy = this.world.tsy;
     const cols = this.cols;
     const rxEnd = rx + rw;
     const ryEnd = ry + rh;
+    const cap = outSlots.length;
 
+    let n = 0;
     for (let y = cy0; y <= cy1; y++) {
       const rowBase = y * cols;
       for (let x = cx0; x <= cx1; x++) {
         let slot = cellHead[rowBase + x];
         while (slot !== -1) {
-          const it = itemRefs[slot];
-          if (it !== null) {
-            // Final precise AABB test against the original (un-padded) rect.
-            if (it.x < rxEnd && it.x + it.w > rx && it.y < ryEnd && it.y + it.h > ry) {
-              out.push(it);
-            }
+          const sxAbs = tsx[slot] < 0 ? -tsx[slot] : tsx[slot];
+          const syAbs = tsy[slot] < 0 ? -tsy[slot] : tsy[slot];
+          const w = tw[slot] * sxAbs;
+          const h = th[slot] * syAbs;
+          const ix = tx[slot] - w * 0.5;
+          const iy = ty[slot] - h * 0.5;
+          if (ix < rxEnd && ix + w > rx && iy < ryEnd && iy + h > ry) {
+            if (n < cap) outSlots[n++] = slot;
+            else return n;
           }
-          slot = itemNext[slot];
+          slot = cellNext[slot];
         }
       }
     }
-    return out;
-  }
-
-  private ensureCapacity(min: number): void {
-    if (this.capacity >= min) return;
-    let next = this.capacity > 0 ? this.capacity : 1024;
-    while (next < min) next *= 2;
-    const oldNext = this.itemNext;
-    this.itemNext = new Int32Array(next);
-    if (this.count > 0) this.itemNext.set(oldNext.subarray(0, this.count));
-    this.itemRefs.length = next;
-    this.capacity = next;
+    return n;
   }
 }

@@ -4,7 +4,7 @@ import { TYPES } from '../di/types';
 import { RendererComponent } from '../ecs/components/RendererComponent';
 import { GameObject } from '../ecs/GameObject';
 import { AssetLoader } from '../assets/AssetLoader';
-import { QuadtreeItem } from '../spatial/Quadtree';
+import { World } from '../ecs/World';
 
 const DEFAULT_Z_BUCKETS = 10;
 
@@ -16,16 +16,15 @@ export class RenderingSystem {
   private spritePool: Sprite[] = [];
   private visibleTick = 0;
 
-  // Active object list rotated each frame (no per-frame allocation).
   private activeObjs: GameObject[] = [];
   private activeSwap: GameObject[] = [];
 
-  // Pre-created z buckets indexed by zIndex (0..zBucketCount-1).
   private zBuckets: Container[] = [];
   private zBucketCount = 0;
 
   constructor(
     @inject(TYPES.AssetLoader) private readonly _assets: AssetLoader,
+    @inject(TYPES.World) private readonly world: World,
   ) {
     this.layer.sortableChildren = false;
     this.setZBucketCount(DEFAULT_Z_BUCKETS);
@@ -36,8 +35,6 @@ export class RenderingSystem {
     if (!this.layer.parent) stage.addChild(this.layer);
   }
 
-  // Pre-create N z buckets. Buckets are added to layer in order so children
-  // are drawn back-to-front by z without ever calling sortChildren().
   setZBucketCount(n: number): void {
     while (this.zBuckets.length < n) {
       const bucket = new Container();
@@ -48,7 +45,6 @@ export class RenderingSystem {
     this.zBucketCount = n;
   }
 
-  // Pre-allocate Sprites to avoid steady-state `new Sprite()` cost.
   prewarmSprites(count: number, fallbackTexture = (this._assets as unknown) as null): void {
     void fallbackTexture;
     const pool = this.spritePool;
@@ -65,7 +61,8 @@ export class RenderingSystem {
     this.layer.scale.set(zoom);
   }
 
-  renderItems(items: QuadtreeItem[]): void {
+  // `slots` holds `count` slot indices into the World's SoA arrays.
+  renderSlots(slots: Int32Array, count: number): void {
     if (!this.stage) return;
 
     this.visibleTick++;
@@ -78,12 +75,21 @@ export class RenderingSystem {
     const buckets = this.zBuckets;
     const lastBucket = this.zBucketCount - 1;
 
-    for (let i = 0, n = items.length; i < n; i++) {
-      const obj = items[i].obj;
-      if (obj === null) continue;
-      const t = obj.transform;
+    const world = this.world;
+    const objects = world.objects;
+    const tx = world.tx;
+    const ty = world.ty;
+    const trot = world.trot;
+    const tsx = world.tsx;
+    const tsy = world.tsy;
+    const tdirty = world.tdirty;
+
+    for (let k = 0; k < count; k++) {
+      const i = slots[k];
+      const obj = objects[i];
+      if (obj === undefined) continue;
       const r = obj.renderer;
-      if (t === null || r === null) continue;
+      if (r === null) continue;
 
       let z = r.zIndex | 0;
       if (z < 0) z = 0; else if (z > lastBucket) z = lastBucket;
@@ -101,12 +107,11 @@ export class RenderingSystem {
       if (!sprite.visible) sprite.visible = true;
       obj.displayTick = tick;
 
-      if (t.dirty) {
-        sprite.x = t.x;
-        sprite.y = t.y;
-        sprite.rotation = t.rotation;
-        sprite.scale.set(t.scaleX, t.scaleY);
-        t.dirty = false;
+      if (tdirty[i] === 1 || obj.displayActive === false) {
+        sprite.x = tx[i];
+        sprite.y = ty[i];
+        sprite.rotation = trot[i];
+        sprite.scale.set(tsx[i], tsy[i]);
       }
       if (sprite.tint !== r.tint) sprite.tint = r.tint;
       if (sprite.alpha !== r.alpha) sprite.alpha = r.alpha;
@@ -124,10 +129,9 @@ export class RenderingSystem {
       swap.push(obj);
     }
 
-    // Sweep previously-active objects that are no longer in the visible set.
     const prev = this.activeObjs;
-    for (let i = 0, n = prev.length; i < n; i++) {
-      const obj = prev[i];
+    for (let p = 0, pn = prev.length; p < pn; p++) {
+      const obj = prev[p];
       if (obj.displayTick !== tick) {
         const sprite = obj.displaySprite;
         if (sprite !== null) {
@@ -140,9 +144,11 @@ export class RenderingSystem {
 
     this.activeObjs = swap;
     this.activeSwap = prev;
+
+    // Now that sprites have been synced, clear dirty flags for visible slots.
+    for (let k = 0; k < count; k++) tdirty[slots[k]] = 0;
   }
 
-  // Release the sprite for an object being despawned. Safe to call any time.
   removeObject(obj: GameObject): void {
     const sprite = obj.displaySprite;
     if (sprite !== null) {

@@ -4,18 +4,24 @@ import { World } from '../ecs/World';
 @injectable()
 export class TransformSystem {
   update(world: World, dt: number): void {
-    const items = world.items;
+    const moving = world.movingIds;
+    const n = world.movingCount;
+    const tx = world.tx;
+    const ty = world.ty;
+    const trot = world.trot;
+    const tvx = world.tvx;
+    const tvy = world.tvy;
+    const tvr = world.tvr;
+    const tdirty = world.tdirty;
+
     let dirty = 0;
-    for (let i = 0, n = items.length; i < n; i++) {
-      const t = items[i].transform;
-      if (!t) continue;
-      if (t.vx !== 0 || t.vy !== 0 || t.vr !== 0) {
-        t.x += t.vx * dt;
-        t.y += t.vy * dt;
-        t.rotation += t.vr * dt;
-        t.dirty = true;
-        dirty++;
-      }
+    for (let k = 0; k < n; k++) {
+      const i = moving[k];
+      tx[i] += tvx[i] * dt;
+      ty[i] += tvy[i] * dt;
+      trot[i] += tvr[i] * dt;
+      tdirty[i] = 1;
+      dirty++;
     }
     if (dirty > 0) world.dirtyTransforms += dirty;
   }
