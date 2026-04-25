@@ -8,7 +8,6 @@ import type { World } from '../ecs/World';
 // - Insert/update is a no-op when the entity stays in the same cell.
 // - Queries return slot indices into World's SoA.
 export class SpatialHashGrid {
-  private cellSize: number;
   private invCellSize: number;
   private cols = 0;
   private rows = 0;
@@ -27,7 +26,6 @@ export class SpatialHashGrid {
     bounds: Bounds,
     cellSize = 256,
   ) {
-    this.cellSize = cellSize;
     this.invCellSize = 1 / cellSize;
     this.setBounds(bounds);
   }
@@ -51,7 +49,6 @@ export class SpatialHashGrid {
   }
 
   setCellSize(cellSize: number): void {
-    this.cellSize = cellSize;
     this.invCellSize = 1 / cellSize;
   }
 

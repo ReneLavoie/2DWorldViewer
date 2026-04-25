@@ -12,6 +12,7 @@ import { RenderingSystem } from './systems/RenderingSystem';
 import { BackgroundSystem } from './systems/BackgroundSystem';
 import { CameraSystem } from './systems/CameraSystem';
 import { CameraController } from './ui/CameraController';
+import { AtlasRegistry } from './rendering/AtlasRegistry';
 
 async function init() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -70,9 +71,15 @@ async function init() {
     'green_ring',
     'purple_diamond',
   ];
-  const gameObjTextures = gameObjAliases
-    .map((a) => assetLoader.get<Texture>(a))
-    .filter((t): t is Texture => !!t);
+  const gameObjOriginals = gameObjAliases
+    .map((a) => ({ alias: a, texture: assetLoader.get<Texture>(a) }))
+    .filter((e): e is { alias: string; texture: Texture } => !!e.texture);
+
+  const atlas = new AtlasRegistry();
+  const atlasTexture = atlas.build(gameObjOriginals);
+  rendering.setAtlasTexture(atlasTexture);
+
+  const gameObjTextures = gameObjOriginals.map((e) => atlas.getByOriginal(e.texture)!);
 
   rendering.setZBucketCount(10);
 

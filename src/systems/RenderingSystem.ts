@@ -11,11 +11,9 @@ export class RenderingSystem {
   private stage: Container | null = null;
   private layer = new Container();
 
-  private containers = new Map<Texture, ParticleContainer>();
-  private containerArr: ParticleContainer[] = [];
-  private childrenArrs: Particle[][] = [];
-
-  private particles: (Particle | null)[] = [];
+  private container: ParticleContainer | null = null;
+  private childrenArr: Particle[] = [];
+  private atlasTexture: Texture | null = null;
 
   private perfMonitor: PerformanceMonitor | null = null;
 
@@ -39,6 +37,28 @@ export class RenderingSystem {
     }
   }
 
+  setAtlasTexture(tex: Texture): void {
+    if (this.atlasTexture === tex && this.container !== null) return;
+    this.atlasTexture = tex;
+    if (this.container) {
+      this.layer.removeChild(this.container as unknown as Container);
+      this.container.destroy();
+    }
+    const c = new ParticleContainer({
+      texture: tex,
+      dynamicProperties: {
+        position: true,
+        rotation: true,
+        uvs: true,
+        color: true,
+        vertex: false,
+      },
+    });
+    this.container = c;
+    this.childrenArr = c.particleChildren as Particle[];
+    this.layer.addChild(c as unknown as Container);
+  }
+
   setZBucketCount(_n: number): void {
     // Z-buckets removed; ParticleContainer renders in array order.
   }
@@ -52,28 +72,7 @@ export class RenderingSystem {
     this.layer.scale.set(zoom);
   }
 
-  private getContainer(tex: Texture): ParticleContainer {
-    let c = this.containers.get(tex);
-    if (c === undefined) {
-      c = new ParticleContainer({
-        texture: tex,
-        dynamicProperties: {
-          position: true,
-          rotation: true,
-          uvs: false,
-          color: true,
-          vertex: false,
-        },
-      });
-      this.containers.set(tex, c);
-      this.containerArr.push(c);
-      this.childrenArrs.push(c.particleChildren as Particle[]);
-      this.layer.addChild(c as unknown as Container);
-    }
-    return c;
-  }
-
-  private ensureParticle(obj: GameObject, slot: number): Particle | null {
+  private ensureParticle(obj: GameObject): Particle | null {
     const r = obj.renderer;
     if (r === null) return null;
     let p = obj.displayParticle;
@@ -86,24 +85,16 @@ export class RenderingSystem {
         alpha: r.alpha,
       });
       obj.displayParticle = p;
-      // Ensure container exists for this texture
-      this.getContainer(r.texture);
-      const arr = this.particles;
-      while (arr.length <= slot) arr.push(null);
-      arr[slot] = p;
     }
     return p;
   }
 
   // `slots` holds `count` slot indices into the World's SoA arrays.
   renderSlots(slots: Int32Array, count: number): void {
-    if (!this.stage) return;
+    if (!this.stage || !this.container) return;
 
-    const containerArr = this.containerArr;
-    const childrenArrs = this.childrenArrs;
-    for (let c = 0, cn = childrenArrs.length; c < cn; c++) {
-      childrenArrs[c].length = 0;
-    }
+    const children = this.childrenArr;
+    children.length = 0;
 
     const world = this.world;
     const objects = world.objects;
@@ -123,7 +114,7 @@ export class RenderingSystem {
 
       let p = obj.displayParticle;
       if (p === null) {
-        p = this.ensureParticle(obj, i);
+        p = this.ensureParticle(obj);
         if (p === null) continue;
       } else if (p.texture !== r.texture) {
         p.texture = r.texture;
@@ -135,23 +126,17 @@ export class RenderingSystem {
       p.scaleX = tsx[i];
       p.scaleY = tsy[i];
 
-      const container = this.containers.get(r.texture);
-      if (container !== undefined) container.particleChildren.push(p);
+      children.push(p);
 
       tdirty[i] = 0;
     }
 
-    for (let c = 0, cn = containerArr.length; c < cn; c++) {
-      containerArr[c].update();
-    }
+    this.container.update();
   }
 
   removeObject(obj: GameObject): void {
     obj.displayParticle = null;
     obj.displayActive = false;
     obj.displayTick = 0;
-    if (obj.index >= 0 && obj.index < this.particles.length) {
-      this.particles[obj.index] = null;
-    }
   }
 }
