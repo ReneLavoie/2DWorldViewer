@@ -54,8 +54,9 @@ async function init() {
   const camera = container.get<CameraSystem>(TYPES.CameraSystem);
   const cameraController = container.get<CameraController>(TYPES.CameraController);
 
-  const worldBounds = { x: -2000, y: -2000, width: 4000, height: 4000 };
+  const worldBounds = { x: -10000, y: -10000, width: 20000, height: 20000 };
   quadtree.setWorldBounds(worldBounds);
+  camera.setWorldBounds(worldBounds);
   camera.setViewport(window.innerWidth, window.innerHeight);
 
   background.attach(app.stage);
@@ -72,13 +73,17 @@ async function init() {
     .map((a) => assetLoader.get<Texture>(a))
     .filter((t): t is Texture => !!t);
 
-  const gameObjects = factory.createMany(700, {
+  rendering.setZBucketCount(10);
+  rendering.prewarmSprites(2048);
+
+  const OBJECT_COUNT = 100_000;
+  const gameObjects = factory.createMany(OBJECT_COUNT, {
     worldBounds,
     textures: gameObjTextures,
   });
   for (const go of gameObjects) world.add(go);
 
-  cameraController.attach(canvas, uiOverlay, () => world.all().length);
+  cameraController.attach(canvas, uiOverlay, () => world.count());
 
   app.ticker.add((ticker) => {
     const dt = ticker.deltaMS / 1000;
@@ -86,8 +91,21 @@ async function init() {
     cameraController.update(dt);
     behaviorSystem.update(world, dt);
     transformSystem.update(world, dt);
-    quadtree.rebuild(world);
-    camera.update(world);
+
+    // Frame-coherent skip: if no transforms moved, no objects were added/
+    // removed, AND the camera state is unchanged, skip both the spatial
+    // rebuild and the render — the previous frame's display is still correct.
+    const transformsDirty = world.dirtyTransforms > 0 || world.structuralDirty;
+    const cameraDirty = camera.isDirty();
+
+    if (transformsDirty) {
+      quadtree.rebuild(world);
+    }
+    if (transformsDirty || cameraDirty) {
+      camera.update(world);
+    }
+
+    world.resetFrameDirty();
   });
 }
 

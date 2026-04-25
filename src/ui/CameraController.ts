@@ -96,8 +96,8 @@ export class CameraController {
   }
 
   reset(): void {
+    this.camera.setZoom(1);
     this.camera.setPosition(0, 0);
-    this.camera.zoom = 1;
   }
 
   private nudge(dir: string): void {
@@ -114,7 +114,7 @@ export class CameraController {
     if (next === prev) return;
     const worldX = this.camera.x + screenX / prev;
     const worldY = this.camera.y + screenY / prev;
-    this.camera.zoom = next;
+    this.camera.setZoom(next);
     this.camera.setPosition(worldX - screenX / next, worldY - screenY / next);
   }
 

@@ -1,17 +1,17 @@
 import { injectable } from 'inversify';
 import { World } from '../ecs/World';
-import {
-  BehaviorComponent,
-  BehaviorType,
-} from '../ecs/components/BehaviorComponent';
-import { TransformComponent, TransformType } from '../ecs/components/TransformComponent';
+
+const TWO_PI = Math.PI * 2;
 
 @injectable()
 export class BehaviorSystem {
   update(world: World, dt: number): void {
-    for (const obj of world.all()) {
-      const b = obj.getComponent<BehaviorComponent>(BehaviorType);
-      const t = obj.getComponent<TransformComponent>(TransformType);
+    const items = world.items;
+    let dirty = 0;
+    for (let i = 0, n = items.length; i < n; i++) {
+      const obj = items[i];
+      const b = obj.behavior;
+      const t = obj.transform;
       if (!b || !t) continue;
 
       b.elapsed += dt;
@@ -24,10 +24,7 @@ export class BehaviorSystem {
           break;
 
         case 'linear': {
-          const speed = d.speed ?? 50;
-          const dir = d.direction ?? 0;
-          t.vx = Math.cos(dir) * speed;
-          t.vy = Math.sin(dir) * speed;
+
           break;
         }
 
@@ -36,7 +33,7 @@ export class BehaviorSystem {
           const freq = d.frequency ?? 1;
           const speed = d.speed ?? 50;
           t.vx = speed;
-          t.vy = amp * Math.cos(2 * Math.PI * freq * b.elapsed + (d.phase ?? 0));
+          t.vy = amp * Math.cos(TWO_PI * freq * b.elapsed + (d.phase ?? 0));
           break;
         }
 
@@ -45,20 +42,22 @@ export class BehaviorSystem {
           const freq = d.frequency ?? 0.5;
           const ox = d.originX ?? t.x;
           const oy = d.originY ?? t.y;
-          const angle = 2 * Math.PI * freq * b.elapsed + (d.phase ?? 0);
+          const angle = TWO_PI * freq * b.elapsed + (d.phase ?? 0);
           t.vx = 0;
           t.vy = 0;
           t.x = ox + Math.cos(angle) * r;
           t.y = oy + Math.sin(angle) * r;
           t.dirty = true;
+          dirty++;
           break;
         }
 
         case 'spin': {
-          t.vr = d.speed ?? 1;
+          // vr precomputed by factory. Nothing to do.
           break;
         }
       }
     }
+    if (dirty > 0) world.dirtyTransforms += dirty;
   }
 }

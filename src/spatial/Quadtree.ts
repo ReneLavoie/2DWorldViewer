@@ -1,3 +1,5 @@
+import type { GameObject } from '../ecs/GameObject';
+
 export interface Bounds {
   x: number;
   y: number;
@@ -5,94 +7,173 @@ export interface Bounds {
   height: number;
 }
 
-export interface QuadtreeItem {
-  id: number;
-  bounds: Bounds;
+export class QuadtreeItem {
+  id = 0;
+  obj: GameObject | null = null;
+  x = 0;
+  y = 0;
+  w = 0;
+  h = 0;
+  lastQueryTick = 0;
+}
+
+class QuadNode {
+  x = 0;
+  y = 0;
+  w = 0;
+  h = 0;
+  depth = 0;
+  items: QuadtreeItem[] = [];
+  children: QuadNode[] | null = null;
+
+  reset(x: number, y: number, w: number, h: number, depth: number): void {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.depth = depth;
+    this.items.length = 0;
+    this.children = null;
+  }
 }
 
 export class Quadtree {
   private readonly maxItems: number;
   private readonly maxDepth: number;
-  private readonly depth: number;
-  private readonly bounds: Bounds;
+  private root: QuadNode;
 
-  private items: QuadtreeItem[] = [];
-  private nodes: Quadtree[] | null = null;
+  private readonly nodePool: QuadNode[] = [];
+  private queryTick = 0;
 
-  constructor(bounds: Bounds, maxItems = 8, maxDepth = 6, depth = 0) {
-    this.bounds = bounds;
+  constructor(bounds: Bounds, maxItems = 16, maxDepth = 8) {
     this.maxItems = maxItems;
     this.maxDepth = maxDepth;
-    this.depth = depth;
+    this.root = this.acquireNode(bounds.x, bounds.y, bounds.width, bounds.height, 0);
+  }
+
+  setBounds(bounds: Bounds): void {
+    this.releaseTree(this.root);
+    this.root = this.acquireNode(bounds.x, bounds.y, bounds.width, bounds.height, 0);
   }
 
   clear(): void {
-    this.items.length = 0;
-    this.nodes = null;
+    const oldRoot = this.root;
+    const x = oldRoot.x;
+    const y = oldRoot.y;
+    const w = oldRoot.w;
+    const h = oldRoot.h;
+    this.releaseTree(oldRoot);
+    this.root = this.acquireNode(x, y, w, h, 0);
   }
 
   insert(item: QuadtreeItem): void {
-    if (!this.intersects(this.bounds, item.bounds)) return;
-
-    if (this.nodes) {
-      for (const n of this.nodes) n.insert(item);
-      return;
-    }
-
-    this.items.push(item);
-
-    if (this.items.length > this.maxItems && this.depth < this.maxDepth) {
-      this.split();
-      const items = this.items;
-      this.items = [];
-      for (const it of items) {
-        for (const n of this.nodes!) n.insert(it);
-      }
-    }
+    this.insertInto(this.root, item);
   }
 
-  query(range: Bounds, out: QuadtreeItem[] = []): QuadtreeItem[] {
-    const seen = new Set<number>();
-    this.queryInto(range, out, seen);
+  query(rx: number, ry: number, rw: number, rh: number, out: QuadtreeItem[]): QuadtreeItem[] {
+    out.length = 0;
+    this.queryTick++;
+    if (this.queryTick === 0) this.queryTick = 1; // wraparound safety
+    this.queryInto(this.root, rx, ry, rw, rh, out, this.queryTick);
     return out;
   }
 
-  private queryInto(range: Bounds, out: QuadtreeItem[], seen: Set<number>): void {
-    if (!this.intersects(this.bounds, range)) return;
+  private insertInto(node: QuadNode, item: QuadtreeItem): void {
+    if (!aabbIntersect(node.x, node.y, node.w, node.h, item.x, item.y, item.w, item.h)) return;
 
-    if (this.nodes) {
-      for (const n of this.nodes) n.queryInto(range, out, seen);
+    if (node.children) {
+      const c = node.children;
+      this.insertInto(c[0], item);
+      this.insertInto(c[1], item);
+      this.insertInto(c[2], item);
+      this.insertInto(c[3], item);
       return;
     }
 
-    for (const it of this.items) {
-      if (seen.has(it.id)) continue;
-      if (this.intersects(it.bounds, range)) {
-        seen.add(it.id);
+    node.items.push(item);
+
+    if (node.items.length > this.maxItems && node.depth < this.maxDepth) {
+      this.splitNode(node);
+      const items = node.items;
+      const c = node.children!;
+      for (let i = 0, n = items.length; i < n; i++) {
+        const it = items[i];
+        this.insertInto(c[0], it);
+        this.insertInto(c[1], it);
+        this.insertInto(c[2], it);
+        this.insertInto(c[3], it);
+      }
+      items.length = 0;
+    }
+  }
+
+  private queryInto(
+    node: QuadNode,
+    rx: number,
+    ry: number,
+    rw: number,
+    rh: number,
+    out: QuadtreeItem[],
+    tick: number,
+  ): void {
+    if (!aabbIntersect(node.x, node.y, node.w, node.h, rx, ry, rw, rh)) return;
+
+    if (node.children) {
+      const c = node.children;
+      this.queryInto(c[0], rx, ry, rw, rh, out, tick);
+      this.queryInto(c[1], rx, ry, rw, rh, out, tick);
+      this.queryInto(c[2], rx, ry, rw, rh, out, tick);
+      this.queryInto(c[3], rx, ry, rw, rh, out, tick);
+      return;
+    }
+
+    const items = node.items;
+    for (let i = 0, n = items.length; i < n; i++) {
+      const it = items[i];
+      if (it.lastQueryTick === tick) continue;
+      if (aabbIntersect(it.x, it.y, it.w, it.h, rx, ry, rw, rh)) {
+        it.lastQueryTick = tick;
         out.push(it);
       }
     }
   }
 
-  private split(): void {
-    const { x, y, width, height } = this.bounds;
-    const hw = width / 2;
-    const hh = height / 2;
-    const d = this.depth + 1;
-    this.nodes = [
-      new Quadtree({ x, y, width: hw, height: hh }, this.maxItems, this.maxDepth, d),
-      new Quadtree({ x: x + hw, y, width: hw, height: hh }, this.maxItems, this.maxDepth, d),
-      new Quadtree({ x, y: y + hh, width: hw, height: hh }, this.maxItems, this.maxDepth, d),
-      new Quadtree({ x: x + hw, y: y + hh, width: hw, height: hh }, this.maxItems, this.maxDepth, d),
+  private splitNode(node: QuadNode): void {
+    const hw = node.w / 2;
+    const hh = node.h / 2;
+    const d = node.depth + 1;
+    const x = node.x;
+    const y = node.y;
+    node.children = [
+      this.acquireNode(x, y, hw, hh, d),
+      this.acquireNode(x + hw, y, hw, hh, d),
+      this.acquireNode(x, y + hh, hw, hh, d),
+      this.acquireNode(x + hw, y + hh, hw, hh, d),
     ];
   }
 
-  private intersects(a: Bounds, b: Bounds): boolean {
-    return (
-      a.x < b.x + b.width &&
-      a.x + a.width > b.x &&
-      a.y < b.y + b.height &&
-      a.y + a.height > b.y
-    );
+  private acquireNode(x: number, y: number, w: number, h: number, depth: number): QuadNode {
+    const n = this.nodePool.pop() ?? new QuadNode();
+    n.reset(x, y, w, h, depth);
+    return n;
   }
+
+  private releaseTree(node: QuadNode): void {
+    if (node.children) {
+      this.releaseTree(node.children[0]);
+      this.releaseTree(node.children[1]);
+      this.releaseTree(node.children[2]);
+      this.releaseTree(node.children[3]);
+      node.children = null;
+    }
+    node.items.length = 0;
+    this.nodePool.push(node);
+  }
+}
+
+function aabbIntersect(
+  ax: number, ay: number, aw: number, ah: number,
+  bx: number, by: number, bw: number, bh: number,
+): boolean {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
