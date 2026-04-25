@@ -27,6 +27,12 @@ export class CameraSystem {
   private lastW = 0;
   private lastH = 0;
 
+  // Reusable buffer for slot indices selected this frame.
+  private fullBuf: Int32Array = new Int32Array(0);
+  // Maximum number of objects to render at extreme zoom-out.
+  private lodCap = 30000;
+  private coversWorld = false;
+
   constructor(
     @inject(TYPES.QuadtreeSystem) private readonly quadtree: QuadtreeSystem,
     @inject(TYPES.RenderingSystem) private readonly rendering: RenderingSystem,
@@ -123,16 +129,14 @@ export class CameraSystem {
     this.dirty = false;
   }
 
-  // Stride-sampled buffer used when the viewport covers the entire world.
-  private fullBuf: Int32Array = new Int32Array(0);
-  // Maximum number of objects to render at extreme zoom-out.
-  private lodCap = 60000;
-
   setLodCap(n: number): void {
     this.lodCap = n;
   }
 
-  update(_world: World): void {
+  // Choose which entity slots to simulate AND render this frame, populating
+  // world.activeIds/activeCount and world.lodMode. Must be called before the
+  // simulation systems run so they can iterate only the active subset.
+  beginFrame(world: World): void {
     const pad = this.padding;
     const vw = this.width / this.zoom;
     const vh = this.height / this.zoom;
@@ -141,40 +145,40 @@ export class CameraSystem {
     const w = vw + pad * 2;
     const h = vh + pad * 2;
 
-    this.background.setCamera(this.x, this.y, this.zoom);
-    this.rendering.setCameraTransform(this.x, this.y, this.zoom);
-
-    // If the (padded) viewport covers the whole world, skip the spatial query
-    // entirely and render a stride-sampled subset of all entities. This avoids
-    // the O(cells * entities-per-cell) cost when zoom is so small that the
-    // query range covers every cell.
-    const totalSize = _world.size;
-    const coversWorld = !this.hasBounds
+    const totalSize = world.size;
+    this.coversWorld = !this.hasBounds
       ? false
       : vx <= this.boundsX && vy <= this.boundsY &&
         vx + w >= this.boundsX + this.boundsW &&
         vy + h >= this.boundsY + this.boundsH;
 
-    if (coversWorld && totalSize > 0) {
-      const cap = this.lodCap;
-      const stride = totalSize > cap ? Math.ceil(totalSize / cap) : 1;
-      const renderCount = Math.ceil(totalSize / stride);
-      if (this.fullBuf.length < renderCount) {
-        this.fullBuf = new Int32Array(renderCount);
-      }
-      const buf = this.fullBuf;
-      let n = 0;
-      for (let i = 0; i < totalSize; i += stride) buf[n++] = i;
-      this.rendering.renderSlots(buf, n);
-      this.snapshot();
+    if (totalSize === 0) {
+      world.activeCount = 0;
+      world.lodMode = false;
       return;
     }
 
+    if (this.coversWorld) {
+      // Entire world visible: stride-sample up to lodCap entities.
+      const cap = this.lodCap;
+      const stride = totalSize > cap ? Math.ceil(totalSize / cap) : 1;
+      const renderCount = Math.ceil(totalSize / stride);
+      if (world.activeIds.length < renderCount) {
+        world.activeIds = new Int32Array(renderCount);
+      }
+      const buf = world.activeIds;
+      let n = 0;
+      for (let i = 0; i < totalSize; i += stride) buf[n++] = i;
+      world.activeCount = n;
+      world.lodMode = true;
+      if (this.fullBuf.length < n) this.fullBuf = new Int32Array(n);
+      return;
+    }
+
+    // Windowed: query the spatial grid for visible slots.
     const slots = this.quadtree.query(vx, vy, w, h);
     let count = this.quadtree.visibleCount();
 
-    // Cap the number of rendered slots at extreme zoom-out even when
-    // we still went through the spatial query.
     const cap = this.lodCap;
     if (count > cap) {
       const stride = Math.ceil(count / cap);
@@ -183,8 +187,23 @@ export class CameraSystem {
       count = n;
     }
 
-    this.rendering.renderSlots(slots, count);
+    if (world.activeIds.length < count) world.activeIds = new Int32Array(count);
+    world.activeIds.set(slots.subarray(0, count));
+    world.activeCount = count;
+    world.lodMode = true;
+  }
 
+  // After simulation has updated transforms for active slots, push the camera
+  // transform and render those slots.
+  flush(world: World): void {
+    this.background.setCamera(this.x, this.y, this.zoom);
+    this.rendering.setCameraTransform(this.x, this.y, this.zoom);
+    this.rendering.renderSlots(world.activeIds, world.activeCount);
     this.snapshot();
+  }
+
+  // Whether the previous beginFrame() determined the camera covers the whole world.
+  isCoveringWorld(): boolean {
+    return this.coversWorld;
   }
 }

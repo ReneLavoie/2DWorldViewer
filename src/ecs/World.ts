@@ -1,4 +1,5 @@
 import { injectable } from 'inversify';
+import type { Particle } from 'pixi.js';
 import { GameObject } from './GameObject';
 
 export const KIND_IDLE = 0;
@@ -43,12 +44,23 @@ export class World {
   cellPrev!: Int32Array;
   cellNext!: Int32Array;
 
+  // Per-slot render data (avoids GameObject/RendererComponent indirection in the hot render loop).
+  texIdx!: Uint8Array;
+  tint!: Uint32Array;
+  particles!: (Particle | null)[];
+
   sinIds!: Int32Array;
   sinCount = 0;
   circIds!: Int32Array;
   circCount = 0;
   movingIds!: Int32Array;
   movingCount = 0;
+
+  // Active (LOD-selected) slots that should be simulated and rendered this frame.
+  activeIds!: Int32Array;
+  activeCount = 0;
+  // When true, simulation iterates `activeIds` instead of the full kind-packed lists.
+  lodMode = false;
 
   dirtyTransforms = 0;
   structuralDirty = true;
@@ -88,9 +100,14 @@ export class World {
     this.cellPrev.fill(-1);
     this.cellNext.fill(-1);
 
+    this.texIdx = new Uint8Array(cap);
+    this.tint = new Uint32Array(cap);
+    this.particles = new Array(cap).fill(null);
+
     this.sinIds = new Int32Array(cap);
     this.circIds = new Int32Array(cap);
     this.movingIds = new Int32Array(cap);
+    this.activeIds = new Int32Array(cap);
   }
 
   reserve(min: number): void {
@@ -108,6 +125,11 @@ export class World {
     };
     const grow8 = (a: Uint8Array): Uint8Array => {
       const n = new Uint8Array(next);
+      n.set(a);
+      return n;
+    };
+    const growU32 = (a: Uint32Array): Uint32Array => {
+      const n = new Uint32Array(next);
       n.set(a);
       return n;
     };
@@ -143,9 +165,16 @@ export class World {
     this.cellPrev = growI(this.cellPrev, -1);
     this.cellNext = growI(this.cellNext, -1);
 
+    this.texIdx = grow8(this.texIdx);
+    this.tint = growU32(this.tint);
+    const newParticles = new Array<Particle | null>(next).fill(null);
+    for (let i = 0; i < this.particles.length; i++) newParticles[i] = this.particles[i];
+    this.particles = newParticles;
+
     this.sinIds = growI(this.sinIds);
     this.circIds = growI(this.circIds);
     this.movingIds = growI(this.movingIds);
+    this.activeIds = growI(this.activeIds);
 
     this.capacity = next;
   }
@@ -161,6 +190,7 @@ export class World {
     this.cellIdx[idx] = -1;
     this.cellPrev[idx] = -1;
     this.cellNext[idx] = -1;
+    this.particles[idx] = null;
     this.structuralDirty = true;
     return idx;
   }
@@ -222,6 +252,8 @@ export class World {
     this.sinCount = 0;
     this.circCount = 0;
     this.movingCount = 0;
+    this.activeCount = 0;
+    this.lodMode = false;
     this.structuralDirty = true;
   }
 }

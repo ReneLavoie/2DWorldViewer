@@ -1,5 +1,6 @@
 import { injectable } from 'inversify';
-import { World } from '../ecs/World';
+import { World, KIND_SINUSOIDAL, KIND_CIRCULAR } from '../ecs/World';
+import { fcos, fsin } from './FastTrig';
 
 const TWO_PI = Math.PI * 2;
 
@@ -11,6 +12,7 @@ export class BehaviorSystem {
     const tvx = world.tvx;
     const tvy = world.tvy;
     const tdirty = world.tdirty;
+    const bkind = world.bkind;
     const belapsed = world.belapsed;
     const bspeed = world.bspeed;
     const bamp = world.bamp;
@@ -22,34 +24,33 @@ export class BehaviorSystem {
 
     let dirty = 0;
 
-    const sinIds = world.sinIds;
-    const sinCount = world.sinCount;
-    for (let k = 0; k < sinCount; k++) {
-      const i = sinIds[k];
-      const e = belapsed[i] + dt;
-      belapsed[i] = e;
-      const dy = bamp[i] * Math.cos(TWO_PI * bfreq[i] * e + bphase[i]);
-      tx[i] += bspeed[i] * dt;
-      ty[i] += dy * dt;
-      tvx[i] = 0;
-      tvy[i] = 0;
-      tdirty[i] = 1;
-      dirty++;
-    }
-
-    const circIds = world.circIds;
-    const circCount = world.circCount;
-    for (let k = 0; k < circCount; k++) {
-      const i = circIds[k];
-      const e = belapsed[i] + dt;
-      belapsed[i] = e;
-      const angle = TWO_PI * bfreq[i] * e + bphase[i];
-      tvx[i] = 0;
-      tvy[i] = 0;
-      tx[i] = boriX[i] + Math.cos(angle) * brad[i];
-      ty[i] = boriY[i] + Math.sin(angle) * brad[i];
-      tdirty[i] = 1;
-      dirty++;
+    // Single pass over active slots, branching on behavior kind.
+    const ids = world.activeIds;
+    const n = world.activeCount;
+    for (let k = 0; k < n; k++) {
+      const i = ids[k];
+      const kind = bkind[i];
+      if (kind === KIND_SINUSOIDAL) {
+        const e = belapsed[i] + dt;
+        belapsed[i] = e;
+        const dy = bamp[i] * fcos(TWO_PI * bfreq[i] * e + bphase[i]);
+        tx[i] += bspeed[i] * dt;
+        ty[i] += dy * dt;
+        tvx[i] = 0;
+        tvy[i] = 0;
+        tdirty[i] = 1;
+        dirty++;
+      } else if (kind === KIND_CIRCULAR) {
+        const e = belapsed[i] + dt;
+        belapsed[i] = e;
+        const angle = TWO_PI * bfreq[i] * e + bphase[i];
+        tvx[i] = 0;
+        tvy[i] = 0;
+        tx[i] = boriX[i] + fcos(angle) * brad[i];
+        ty[i] = boriY[i] + fsin(angle) * brad[i];
+        tdirty[i] = 1;
+        dirty++;
+      }
     }
 
     if (dirty > 0) world.dirtyTransforms += dirty;

@@ -80,6 +80,7 @@ async function init() {
   rendering.setAtlasTexture(atlasTexture);
 
   const gameObjTextures = gameObjOriginals.map((e) => atlas.getByOriginal(e.texture)!);
+  rendering.setTextures(gameObjTextures);
 
   rendering.setZBucketCount(10);
 
@@ -98,18 +99,22 @@ async function init() {
     const dt = ticker.deltaMS / 1000;
 
     cameraController.update(dt);
+
+    // 1) Decide which entities to simulate AND render this frame.
+    camera.beginFrame(world);
+
+    // 2) Simulate only the active subset.
     behaviorSystem.update(world, dt);
     transformSystem.update(world, dt);
 
-    const transformsDirty = world.dirtyTransforms > 0 || world.structuralDirty;
-    const cameraDirty = camera.isDirty();
-
-    if (transformsDirty) {
+    // 3) Re-bucket only the simulated subset; skip when the camera covers the
+    //    whole world (rendering uses stride sampling, not the spatial grid).
+    if (!camera.isCoveringWorld() && world.dirtyTransforms > 0) {
       quadtree.update();
     }
-    if (transformsDirty || cameraDirty) {
-      camera.update(world);
-    }
+
+    // 4) Push camera transform and render the active subset.
+    camera.flush(world);
 
     world.resetFrameDirty();
   });

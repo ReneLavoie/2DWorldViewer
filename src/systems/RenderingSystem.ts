@@ -15,6 +15,9 @@ export class RenderingSystem {
   private childrenArr: Particle[] = [];
   private atlasTexture: Texture | null = null;
 
+  // Slot-textures table parallel to world.texIdx.
+  private textures: Texture[] = [];
+
   private perfMonitor: PerformanceMonitor | null = null;
 
   constructor(
@@ -37,6 +40,10 @@ export class RenderingSystem {
     }
   }
 
+  setTextures(textures: Texture[]): void {
+    this.textures = textures;
+  }
+
   setAtlasTexture(tex: Texture): void {
     if (this.atlasTexture === tex && this.container !== null) return;
     this.atlasTexture = tex;
@@ -44,13 +51,16 @@ export class RenderingSystem {
       this.layer.removeChild(this.container as unknown as Container);
       this.container.destroy();
     }
+    // Only position and rotation change frame-to-frame. UVs/color/vertex are
+    // baked at particle creation, so mark them static to avoid per-frame
+    // GPU buffer uploads for those attributes.
     const c = new ParticleContainer({
       texture: tex,
       dynamicProperties: {
         position: true,
         rotation: true,
-        uvs: true,
-        color: true,
+        uvs: false,
+        color: false,
         vertex: false,
       },
     });
@@ -72,52 +82,40 @@ export class RenderingSystem {
     this.layer.scale.set(zoom);
   }
 
-  private ensureParticle(obj: GameObject): Particle | null {
-    const r = obj.renderer;
-    if (r === null) return null;
-    let p = obj.displayParticle;
-    if (p === null) {
-      p = new Particle({
-        texture: r.texture,
-        anchorX: r.anchorX,
-        anchorY: r.anchorY,
-        tint: r.tint,
-        alpha: r.alpha,
-      });
-      obj.displayParticle = p;
-    }
-    return p;
-  }
-
   // `slots` holds `count` slot indices into the World's SoA arrays.
   renderSlots(slots: Int32Array, count: number): void {
     if (!this.stage || !this.container) return;
 
-    const children = this.childrenArr;
-    children.length = 0;
-
     const world = this.world;
-    const objects = world.objects;
     const tx = world.tx;
     const ty = world.ty;
     const trot = world.trot;
     const tsx = world.tsx;
     const tsy = world.tsy;
     const tdirty = world.tdirty;
+    const texIdx = world.texIdx;
+    const tints = world.tint;
+    const particles = world.particles;
+    const textures = this.textures;
 
+    const children = this.childrenArr;
+    if (children.length < count) children.length = count;
+
+    let n = 0;
     for (let k = 0; k < count; k++) {
       const i = slots[k];
-      const obj = objects[i];
-      if (obj === undefined) continue;
-      const r = obj.renderer;
-      if (r === null) continue;
-
-      let p = obj.displayParticle;
+      let p = particles[i];
       if (p === null) {
-        p = this.ensureParticle(obj);
-        if (p === null) continue;
-      } else if (p.texture !== r.texture) {
-        p.texture = r.texture;
+        const tex = textures[texIdx[i]];
+        if (tex === undefined) continue;
+        p = new Particle({
+          texture: tex,
+          anchorX: 0.5,
+          anchorY: 0.5,
+          tint: tints[i],
+          alpha: 1,
+        });
+        particles[i] = p;
       }
 
       p.x = tx[i];
@@ -126,15 +124,17 @@ export class RenderingSystem {
       p.scaleX = tsx[i];
       p.scaleY = tsy[i];
 
-      children.push(p);
-
+      children[n++] = p;
       tdirty[i] = 0;
     }
+    if (children.length !== n) children.length = n;
 
     this.container.update();
   }
 
   removeObject(obj: GameObject): void {
+    const i = obj.index;
+    if (i >= 0) this.world.particles[i] = null;
     obj.displayParticle = null;
     obj.displayActive = false;
     obj.displayTick = 0;

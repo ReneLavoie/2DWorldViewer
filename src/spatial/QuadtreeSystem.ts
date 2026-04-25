@@ -18,7 +18,7 @@ export class QuadtreeSystem {
     @inject(TYPES.World) private readonly world: World,
   ) {
     this.worldBounds = { x: -5000, y: -5000, width: 10000, height: 10000 };
-    this.grid = new SpatialHashGrid(this.world, this.worldBounds, 256);
+    this.grid = new SpatialHashGrid(this.world, this.worldBounds, 512);
   }
 
   setWorldBounds(bounds: Bounds): void {
@@ -45,9 +45,9 @@ export class QuadtreeSystem {
     }
   }
 
-  // Incremental update: re-bucket only entities in the packed `movingIds`
-  // list (entities with non-zero velocity / behavior-driven motion). This
-  // avoids an O(N) full scan over all entities every frame.
+  // Incremental update: re-bucket only entities that were simulated this
+  // frame (the active LOD subset). Off-screen entities did not move, so
+  // their cells stay correct.
   update(): void {
     const w = this.world;
     const tx = w.tx;
@@ -56,11 +56,11 @@ export class QuadtreeSystem {
     const th = w.th;
     const tsx = w.tsx;
     const tsy = w.tsy;
-    const moving = w.movingIds;
-    const n = w.movingCount;
+    const ids = w.activeIds;
+    const n = w.activeCount;
     const grid = this.grid;
     for (let k = 0; k < n; k++) {
-      const i = moving[k];
+      const i = ids[k];
       const sx = tsx[i] < 0 ? -tsx[i] : tsx[i];
       const sy = tsy[i] < 0 ? -tsy[i] : tsy[i];
       grid.update(i, tx[i], ty[i], tw[i] * sx * 0.5, th[i] * sy * 0.5);

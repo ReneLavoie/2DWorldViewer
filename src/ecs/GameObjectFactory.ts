@@ -62,13 +62,17 @@ export class GameObjectFactory {
     world.tdirty[i] = 1;
 
     const r = this.rendererPool.pop() ?? new RendererComponent({ texture: Texture.WHITE });
-    r.texture = textures[(Math.random() * textures.length) | 0];
+    const texIndex = (Math.random() * textures.length) | 0;
+    r.texture = textures[texIndex];
     r.tint = (Math.random() * 0xffffff) | 0;
     r.alpha = 1;
     r.anchorX = 0.5;
     r.anchorY = 0.5;
     r.zIndex = (Math.random() * 10) | 0;
     obj.renderer = r;
+
+    world.texIdx[i] = texIndex;
+    world.tint[i] = r.tint >>> 0;
 
     const kind = BEHAVIOR_CODES[(Math.random() * BEHAVIOR_CODES.length) | 0];
     world.bkind[i] = kind;
