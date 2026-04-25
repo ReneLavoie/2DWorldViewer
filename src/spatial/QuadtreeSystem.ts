@@ -45,9 +45,9 @@ export class QuadtreeSystem {
     }
   }
 
-  // Incremental update: only re-bucket entities whose transform changed since
-  // last frame (tdirty[i] === 1). Entities that did not move skip the grid
-  // entirely. Clears tdirty after consuming.
+  // Incremental update: re-bucket only entities in the packed `movingIds`
+  // list (entities with non-zero velocity / behavior-driven motion). This
+  // avoids an O(N) full scan over all entities every frame.
   update(): void {
     const w = this.world;
     const tx = w.tx;
@@ -56,14 +56,14 @@ export class QuadtreeSystem {
     const th = w.th;
     const tsx = w.tsx;
     const tsy = w.tsy;
-    const tdirty = w.tdirty;
-    const n = w.size;
-    for (let i = 0; i < n; i++) {
-      if (tdirty[i] === 0) continue;
+    const moving = w.movingIds;
+    const n = w.movingCount;
+    const grid = this.grid;
+    for (let k = 0; k < n; k++) {
+      const i = moving[k];
       const sx = tsx[i] < 0 ? -tsx[i] : tsx[i];
       const sy = tsy[i] < 0 ? -tsy[i] : tsy[i];
-      this.grid.update(i, tx[i], ty[i], tw[i] * sx * 0.5, th[i] * sy * 0.5);
-      // tdirty cleared by RenderingSystem after sprite sync; leave intact.
+      grid.update(i, tx[i], ty[i], tw[i] * sx * 0.5, th[i] * sy * 0.5);
     }
   }
 

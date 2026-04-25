@@ -19,7 +19,7 @@ export class CameraController {
   private panSpeed = 600;
   private buttonPanStep = 60;
   private zoomStep = 1.15;
-  private minZoom = 0.25;
+  private minZoom = 0.05;
   private maxZoom = 4;
 
   private target: HTMLElement | null = null;

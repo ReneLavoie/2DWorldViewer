@@ -1,59 +1,50 @@
 import { inject, injectable } from 'inversify';
-import { Container, Sprite } from 'pixi.js';
+import { Container, Particle, ParticleContainer, Texture } from 'pixi.js';
+import { PerformanceMonitor } from 'pixi-msdf-textfield';
 import { TYPES } from '../di/types';
-import { RendererComponent } from '../ecs/components/RendererComponent';
 import { GameObject } from '../ecs/GameObject';
 import { AssetLoader } from '../assets/AssetLoader';
 import { World } from '../ecs/World';
-
-const DEFAULT_Z_BUCKETS = 10;
 
 @injectable()
 export class RenderingSystem {
   private stage: Container | null = null;
   private layer = new Container();
 
-  private spritePool: Sprite[] = [];
-  private visibleTick = 0;
+  private containers = new Map<Texture, ParticleContainer>();
+  private containerArr: ParticleContainer[] = [];
+  private childrenArrs: Particle[][] = [];
 
-  private activeObjs: GameObject[] = [];
-  private activeSwap: GameObject[] = [];
+  private particles: (Particle | null)[] = [];
 
-  private zBuckets: Container[] = [];
-  private zBucketCount = 0;
+  private perfMonitor: PerformanceMonitor | null = null;
 
   constructor(
     @inject(TYPES.AssetLoader) private readonly _assets: AssetLoader,
     @inject(TYPES.World) private readonly world: World,
   ) {
+    void this._assets;
     this.layer.sortableChildren = false;
-    this.setZBucketCount(DEFAULT_Z_BUCKETS);
   }
 
   attach(stage: Container): void {
     this.stage = stage;
     if (!this.layer.parent) stage.addChild(this.layer);
+    if (this.perfMonitor === null) {
+      this.perfMonitor = new PerformanceMonitor({
+        enableConsole: true,
+        autoAdjust: false,
+      });
+      this.perfMonitor.start();
+    }
   }
 
-  setZBucketCount(n: number): void {
-    while (this.zBuckets.length < n) {
-      const bucket = new Container();
-      bucket.sortableChildren = false;
-      this.zBuckets.push(bucket);
-      this.layer.addChild(bucket);
-    }
-    this.zBucketCount = n;
+  setZBucketCount(_n: number): void {
+    // Z-buckets removed; ParticleContainer renders in array order.
   }
 
-  prewarmSprites(count: number, fallbackTexture = (this._assets as unknown) as null): void {
-    void fallbackTexture;
-    const pool = this.spritePool;
-    const tex = (this._assets && (this._assets as any).get?.('blue_swirl')) || undefined;
-    for (let i = pool.length; i < count; i++) {
-      const s = tex ? new Sprite(tex) : new Sprite();
-      s.visible = false;
-      pool.push(s);
-    }
+  prewarmSprites(_count: number): void {
+    // No-op: particles are created lazily per entity.
   }
 
   setCameraTransform(x: number, y: number, zoom = 1): void {
@@ -61,19 +52,58 @@ export class RenderingSystem {
     this.layer.scale.set(zoom);
   }
 
+  private getContainer(tex: Texture): ParticleContainer {
+    let c = this.containers.get(tex);
+    if (c === undefined) {
+      c = new ParticleContainer({
+        texture: tex,
+        dynamicProperties: {
+          position: true,
+          rotation: true,
+          uvs: false,
+          color: true,
+          vertex: false,
+        },
+      });
+      this.containers.set(tex, c);
+      this.containerArr.push(c);
+      this.childrenArrs.push(c.particleChildren as Particle[]);
+      this.layer.addChild(c as unknown as Container);
+    }
+    return c;
+  }
+
+  private ensureParticle(obj: GameObject, slot: number): Particle | null {
+    const r = obj.renderer;
+    if (r === null) return null;
+    let p = obj.displayParticle;
+    if (p === null) {
+      p = new Particle({
+        texture: r.texture,
+        anchorX: r.anchorX,
+        anchorY: r.anchorY,
+        tint: r.tint,
+        alpha: r.alpha,
+      });
+      obj.displayParticle = p;
+      // Ensure container exists for this texture
+      this.getContainer(r.texture);
+      const arr = this.particles;
+      while (arr.length <= slot) arr.push(null);
+      arr[slot] = p;
+    }
+    return p;
+  }
+
   // `slots` holds `count` slot indices into the World's SoA arrays.
   renderSlots(slots: Int32Array, count: number): void {
     if (!this.stage) return;
 
-    this.visibleTick++;
-    if (this.visibleTick === 0) this.visibleTick = 1;
-    const tick = this.visibleTick;
-
-    const swap = this.activeSwap;
-    swap.length = 0;
-
-    const buckets = this.zBuckets;
-    const lastBucket = this.zBucketCount - 1;
+    const containerArr = this.containerArr;
+    const childrenArrs = this.childrenArrs;
+    for (let c = 0, cn = childrenArrs.length; c < cn; c++) {
+      childrenArrs[c].length = 0;
+    }
 
     const world = this.world;
     const objects = world.objects;
@@ -91,95 +121,37 @@ export class RenderingSystem {
       const r = obj.renderer;
       if (r === null) continue;
 
-      let z = r.zIndex | 0;
-      if (z < 0) z = 0; else if (z > lastBucket) z = lastBucket;
-
-      let sprite = obj.displaySprite;
-      if (sprite === null) {
-        sprite = this.acquireSprite(r);
-        buckets[z].addChild(sprite);
-        obj.displaySprite = sprite;
-        obj.displayZBucket = z;
-      } else if (sprite.texture !== r.texture) {
-        sprite.texture = r.texture;
+      let p = obj.displayParticle;
+      if (p === null) {
+        p = this.ensureParticle(obj, i);
+        if (p === null) continue;
+      } else if (p.texture !== r.texture) {
+        p.texture = r.texture;
       }
 
-      if (!sprite.visible) sprite.visible = true;
-      obj.displayTick = tick;
+      p.x = tx[i];
+      p.y = ty[i];
+      p.rotation = trot[i];
+      p.scaleX = tsx[i];
+      p.scaleY = tsy[i];
 
-      if (tdirty[i] === 1 || obj.displayActive === false) {
-        sprite.x = tx[i];
-        sprite.y = ty[i];
-        sprite.rotation = trot[i];
-        sprite.scale.set(tsx[i], tsy[i]);
-      }
-      if (sprite.tint !== r.tint) sprite.tint = r.tint;
-      if (sprite.alpha !== r.alpha) sprite.alpha = r.alpha;
-      if (obj.displayZBucket !== z) {
-        const newBucket = buckets[z];
-        const parent = sprite.parent;
-        if (parent !== null) parent.removeChild(sprite);
-        newBucket.addChild(sprite);
-        obj.displayZBucket = z;
-      }
+      const container = this.containers.get(r.texture);
+      if (container !== undefined) container.particleChildren.push(p);
 
-      if (!obj.displayActive) {
-        obj.displayActive = true;
-      }
-      swap.push(obj);
+      tdirty[i] = 0;
     }
 
-    const prev = this.activeObjs;
-    for (let p = 0, pn = prev.length; p < pn; p++) {
-      const obj = prev[p];
-      if (obj.displayTick !== tick) {
-        const sprite = obj.displaySprite;
-        if (sprite !== null) {
-          this.releaseSprite(sprite);
-          obj.displaySprite = null;
-        }
-        obj.displayActive = false;
-      }
+    for (let c = 0, cn = containerArr.length; c < cn; c++) {
+      containerArr[c].update();
     }
-
-    this.activeObjs = swap;
-    this.activeSwap = prev;
-
-    // Now that sprites have been synced, clear dirty flags for visible slots.
-    for (let k = 0; k < count; k++) tdirty[slots[k]] = 0;
   }
 
   removeObject(obj: GameObject): void {
-    const sprite = obj.displaySprite;
-    if (sprite !== null) {
-      this.releaseSprite(sprite);
-      obj.displaySprite = null;
-    }
+    obj.displayParticle = null;
     obj.displayActive = false;
     obj.displayTick = 0;
-  }
-
-  private acquireSprite(r: RendererComponent): Sprite {
-    const s = this.spritePool.pop();
-    if (s) {
-      s.texture = r.texture;
-      s.anchor.set(r.anchorX, r.anchorY);
-      s.tint = r.tint;
-      s.alpha = r.alpha;
-      s.visible = true;
-      return s;
+    if (obj.index >= 0 && obj.index < this.particles.length) {
+      this.particles[obj.index] = null;
     }
-    const ns = new Sprite(r.texture);
-    ns.anchor.set(r.anchorX, r.anchorY);
-    ns.tint = r.tint;
-    ns.alpha = r.alpha;
-    return ns;
-  }
-
-  private releaseSprite(s: Sprite): void {
-    s.visible = false;
-    const parent = s.parent;
-    if (parent !== null) parent.removeChild(s);
-    this.spritePool.push(s);
   }
 }

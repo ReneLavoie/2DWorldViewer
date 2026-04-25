@@ -24,9 +24,10 @@ async function init() {
     width: window.innerWidth,
     height: window.innerHeight,
     background: 0xffffff,
-    resolution: window.devicePixelRatio || 1,
-    autoDensity: true,
-    antialias: true,
+    resolution: 1,
+    autoDensity: false,
+    antialias: false,
+    powerPreference: 'high-performance',
   });
 
   window.addEventListener('resize', () => {
@@ -74,7 +75,6 @@ async function init() {
     .filter((t): t is Texture => !!t);
 
   rendering.setZBucketCount(10);
-  rendering.prewarmSprites(2048);
 
   const OBJECT_COUNT = 1_000_000;
   factory.createMany(OBJECT_COUNT, {

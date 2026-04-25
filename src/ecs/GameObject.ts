@@ -1,5 +1,5 @@
 import { RendererType, type RendererComponent } from './components/RendererComponent';
-import type { Sprite } from 'pixi.js';
+import type { Particle } from 'pixi.js';
 
 let nextId = 1;
 
@@ -9,7 +9,7 @@ export class GameObject {
 
   renderer: RendererComponent | null = null;
 
-  displaySprite: Sprite | null = null;
+  displayParticle: Particle | null = null;
   displayTick = 0;
   displayZBucket = 0;
   displayActive = false;
@@ -34,7 +34,7 @@ export class GameObject {
 
   reset(): void {
     this.renderer = null;
-    this.displaySprite = null;
+    this.displayParticle = null;
     this.displayTick = 0;
     this.displayZBucket = 0;
     this.displayActive = false;
