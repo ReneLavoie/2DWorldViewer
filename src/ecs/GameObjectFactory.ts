@@ -64,7 +64,7 @@ export class GameObjectFactory {
     const r = this.rendererPool.pop() ?? new RendererComponent({ texture: Texture.WHITE });
     const texIndex = (Math.random() * textures.length) | 0;
     r.texture = textures[texIndex];
-    r.tint = (Math.random() * 0xffffff) | 0;
+    r.tint = 0xffffff;
     r.alpha = 1;
     r.anchorX = 0.5;
     r.anchorY = 0.5;

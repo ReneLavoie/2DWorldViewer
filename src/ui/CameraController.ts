@@ -17,7 +17,6 @@ export class CameraController {
   private lastX = 0;
   private lastY = 0;
   private panSpeed = 600;
-  private buttonPanStep = 60;
   private zoomStep = 1.15;
   private minZoom = 0.05;
   private maxZoom = 4;
@@ -28,13 +27,15 @@ export class CameraController {
   private countInfo: HTMLElement | null = null;
   private getCount: () => number = () => 0;
 
+  private activePans = new Set<string>();
+  private activeZooms = new Set<string>();
+
   constructor(
     @inject(TYPES.CameraSystem) private readonly camera: CameraSystem,
   ) {}
 
   configure(opts: CameraControllerOptions = {}): void {
     if (opts.panSpeed !== undefined) this.panSpeed = opts.panSpeed;
-    if (opts.buttonPanStep !== undefined) this.buttonPanStep = opts.buttonPanStep;
     if (opts.zoomStep !== undefined) this.zoomStep = opts.zoomStep;
     if (opts.minZoom !== undefined) this.minZoom = opts.minZoom;
     if (opts.maxZoom !== undefined) this.maxZoom = opts.maxZoom;
@@ -54,14 +55,39 @@ export class CameraController {
     window.addEventListener('pointerup', this.onPointerUp);
     target.addEventListener('wheel', this.onWheel, { passive: false });
 
+    const bindHold = (
+      btn: HTMLButtonElement,
+      onStart: () => void,
+      onStop: () => void,
+    ): void => {
+      let active = false;
+      const start = (e: Event): void => {
+        if (active) return;
+        active = true;
+        e.preventDefault();
+        onStart();
+      };
+      const stop = (): void => {
+        if (!active) return;
+        active = false;
+        onStop();
+      };
+      btn.addEventListener('mousedown', start);
+      btn.addEventListener('mouseup', stop);
+      btn.addEventListener('mouseleave', stop);
+      btn.addEventListener('touchstart', start, { passive: false });
+      btn.addEventListener('touchend', stop);
+      btn.addEventListener('touchcancel', stop);
+      window.addEventListener('blur', stop);
+    };
+
     overlay.querySelectorAll<HTMLButtonElement>('button[data-pan]').forEach((btn) => {
-      btn.addEventListener('click', () => this.nudge(btn.dataset.pan!));
+      const dir = btn.dataset.pan!;
+      bindHold(btn, () => this.activePans.add(dir), () => this.activePans.delete(dir));
     });
     overlay.querySelectorAll<HTMLButtonElement>('button[data-zoom]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const dir = btn.dataset.zoom;
-        this.zoomAt(this.camera.width / 2, this.camera.height / 2, dir === 'in' ? this.zoomStep : 1 / this.zoomStep);
-      });
+      const dir = btn.dataset.zoom!;
+      bindHold(btn, () => this.activeZooms.add(dir), () => this.activeZooms.delete(dir));
     });
     overlay.querySelectorAll<HTMLButtonElement>('button[data-reset]').forEach((btn) => {
       btn.addEventListener('click', () => this.reset());
@@ -71,10 +97,10 @@ export class CameraController {
   update(dt: number): void {
     let dx = 0;
     let dy = 0;
-    if (this.keys.has('arrowleft') || this.keys.has('a')) dx -= 1;
-    if (this.keys.has('arrowright') || this.keys.has('d')) dx += 1;
-    if (this.keys.has('arrowup') || this.keys.has('w')) dy -= 1;
-    if (this.keys.has('arrowdown') || this.keys.has('s')) dy += 1;
+    if (this.keys.has('arrowleft') || this.keys.has('a') || this.activePans.has('left')) dx -= 1;
+    if (this.keys.has('arrowright') || this.keys.has('d') || this.activePans.has('right')) dx += 1;
+    if (this.keys.has('arrowup') || this.keys.has('w') || this.activePans.has('up')) dy -= 1;
+    if (this.keys.has('arrowdown') || this.keys.has('s') || this.activePans.has('down')) dy += 1;
     if (dx !== 0 || dy !== 0) {
       const len = Math.hypot(dx, dy) || 1;
       const amount = (this.panSpeed * dt) / this.camera.zoom;
@@ -83,10 +109,10 @@ export class CameraController {
         this.camera.y + (dy / len) * amount,
       );
     }
-    if (this.keys.has('q') || this.keys.has('-')) {
+    if (this.keys.has('q') || this.keys.has('-') || this.activeZooms.has('out')) {
       this.zoomAt(this.camera.width / 2, this.camera.height / 2, Math.pow(1 / this.zoomStep, dt * 4));
     }
-    if (this.keys.has('e') || this.keys.has('=') || this.keys.has('+')) {
+    if (this.keys.has('e') || this.keys.has('=') || this.keys.has('+') || this.activeZooms.has('in')) {
       this.zoomAt(this.camera.width / 2, this.camera.height / 2, Math.pow(this.zoomStep, dt * 4));
     }
 
@@ -100,13 +126,6 @@ export class CameraController {
     this.camera.setPosition(0, 0);
   }
 
-  private nudge(dir: string): void {
-    const step = this.buttonPanStep / this.camera.zoom;
-    if (dir === 'left') this.camera.setPosition(this.camera.x - step, this.camera.y);
-    else if (dir === 'right') this.camera.setPosition(this.camera.x + step, this.camera.y);
-    else if (dir === 'up') this.camera.setPosition(this.camera.x, this.camera.y - step);
-    else if (dir === 'down') this.camera.setPosition(this.camera.x, this.camera.y + step);
-  }
 
   private zoomAt(screenX: number, screenY: number, factor: number): void {
     const prev = this.camera.zoom;

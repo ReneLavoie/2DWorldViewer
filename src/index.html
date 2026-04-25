@@ -26,14 +26,15 @@
       box-shadow: 0 4px 20px rgba(0,0,0,0.3);
     }
     #ui-overlay .dpad { bottom: 24px; left: 24px; display: grid; grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(3, 42px); gap: 4px; }
-    #ui-overlay .zoom { bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 4px; width: 50px; }
-    #ui-overlay .info { top: 16px; left: 16px; font-size: 12px; line-height: 1.5; min-width: 180px; }
+    #ui-overlay .zoom { bottom: 24px; left: 190px; display: flex; flex-direction: column; gap: 4px; width: 50px; }
+    #ui-overlay .info { top: 16px; right: 16px; font-size: 12px; line-height: 1.5; min-width: 180px; }
     #ui-overlay button {
       background: rgba(255,255,255,0.08);
       color: #fff; border: 1px solid rgba(255,255,255,0.15);
       border-radius: 6px; cursor: pointer; font-size: 18px; font-weight: bold;
       transition: background 0.12s ease;
       user-select: none; -webkit-user-select: none;
+      touch-action: none;
     }
     #ui-overlay button:hover { background: rgba(255,255,255,0.18); }
     #ui-overlay button:active { background: rgba(255,255,255,0.28); }
@@ -42,7 +43,7 @@
     #ui-overlay .zoom button { height: 42px; }
     #ui-overlay .info .row { display: flex; justify-content: space-between; gap: 10px; }
     #ui-overlay .info .k { opacity: 0.65; }
-    #ui-overlay .hint { top: 16px; right: 16px; font-size: 11px; opacity: 0.8; max-width: 220px; }
+    #ui-overlay .hint { top: 110px; right: 16px; font-size: 11px; opacity: 0.8; max-width: 220px; }
   </style>
 </head>
 <body>
