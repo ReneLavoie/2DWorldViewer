@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pixi.js App</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #game-canvas { display: block; width: 100vw; height: 100vh; position: absolute; inset: 0; z-index: 0; }
+    #ui-canvas {
+      position: absolute; inset: 0; width: 100vw; height: 100vh;
+      pointer-events: none; z-index: 1;
+    }
+    #ui-overlay {
+      position: absolute; inset: 0; pointer-events: none; z-index: 2;
+      color: #fff;
+    }
+    #ui-overlay .panel {
+      position: absolute; pointer-events: auto;
+      background: rgba(20, 24, 32, 0.72);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    #ui-overlay .dpad { bottom: 24px; left: 24px; display: grid; grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(3, 42px); gap: 4px; }
+    #ui-overlay .zoom { bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 4px; width: 50px; }
+    #ui-overlay .info { top: 16px; left: 16px; font-size: 12px; line-height: 1.5; min-width: 180px; }
+    #ui-overlay button {
+      background: rgba(255,255,255,0.08);
+      color: #fff; border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px; cursor: pointer; font-size: 18px; font-weight: bold;
+      transition: background 0.12s ease;
+      user-select: none; -webkit-user-select: none;
+    }
+    #ui-overlay button:hover { background: rgba(255,255,255,0.18); }
+    #ui-overlay button:active { background: rgba(255,255,255,0.28); }
+    #ui-overlay .dpad button { width: 42px; height: 42px; }
+    #ui-overlay .dpad .spacer { visibility: hidden; }
+    #ui-overlay .zoom button { height: 42px; }
+    #ui-overlay .info .row { display: flex; justify-content: space-between; gap: 10px; }
+    #ui-overlay .info .k { opacity: 0.65; }
+    #ui-overlay .hint { top: 16px; right: 16px; font-size: 11px; opacity: 0.8; max-width: 220px; }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+  <canvas id="ui-canvas"></canvas>
+  <div id="ui-overlay">
+    <div class="panel info">
+      <div class="row"><span class="k">Camera</span><span id="ui-cam">0, 0</span></div>
+      <div class="row"><span class="k">Zoom</span><span id="ui-zoom">1.00x</span></div>
+      <div class="row"><span class="k">Objects</span><span id="ui-count">0</span></div>
+    </div>
+    <div class="panel hint">
+      WASD / Arrows to pan · Q/E or +/- to zoom · Drag with mouse · Scroll to zoom
+    </div>
+    <div class="panel dpad">
+      <div class="spacer"></div>
+      <button data-pan="up" title="Pan up">↑</button>
+      <div class="spacer"></div>
+      <button data-pan="left" title="Pan left">←</button>
+      <button data-reset="1" title="Reset camera" style="font-size:12px;">⭘</button>
+      <button data-pan="right" title="Pan right">→</button>
+      <div class="spacer"></div>
+      <button data-pan="down" title="Pan down">↓</button>
+      <div class="spacer"></div>
+    </div>
+    <div class="panel zoom">
+      <button data-zoom="in" title="Zoom in">+</button>
+      <button data-zoom="out" title="Zoom out">−</button>
+    </div>
+  </div>
+</body>
+</html>
