@@ -1,15 +1,9 @@
-import { ComponentStore, growI32 } from '../ComponentStore';
+import { ComponentStore } from '../ComponentStore';
 
 export class SpatialComponent extends ComponentStore {
-  cellIdx!: Int32Array;
-  cellPrev!: Int32Array;
-  cellNext!: Int32Array;
-
-  protected grow(next: number): void {
-    this.cellIdx = growI32(this.cellIdx, next, -1);
-    this.cellPrev = growI32(this.cellPrev, next, -1);
-    this.cellNext = growI32(this.cellNext, next, -1);
-  }
+  cellIdx = this.i32('cellIdx', -1);
+  cellPrev = this.i32('cellPrev', -1);
+  cellNext = this.i32('cellNext', -1);
 
   onSlotAllocated(slot: number): void {
     this.cellIdx[slot] = -1;
