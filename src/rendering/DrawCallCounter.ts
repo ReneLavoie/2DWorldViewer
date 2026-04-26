@@ -5,15 +5,15 @@ export class DrawCallCounter {
   private count = 0;
   private installed = false;
 
-  begin(): void {
+  public begin(): void {
     this.count = 0;
   }
 
-  get value(): number {
+  public get value(): number {
     return this.count;
   }
 
-  installWebGL(gl: WebGL2RenderingContext | WebGLRenderingContext): void {
+  public installWebGL(gl: WebGL2RenderingContext | WebGLRenderingContext): void {
     if (this.installed) return;
     this.installed = true;
     const self = this;
@@ -36,7 +36,7 @@ export class DrawCallCounter {
     }
   }
 
-  installWebGPU(): void {
+  public installWebGPU(): void {
     if (this.installed) return;
     if (typeof (globalThis as { GPURenderPassEncoder?: unknown }).GPURenderPassEncoder === 'undefined') return;
     this.installed = true;

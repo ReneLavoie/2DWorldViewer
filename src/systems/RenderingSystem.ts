@@ -31,7 +31,7 @@ export class RenderingSystem {
   private pool: Particle[][] = [];
   private readonly maxPoolPerTex = 256;
 
-  constructor(
+  public constructor(
     @inject(TYPES.World) private readonly world: World,
   ) {
     this.layer.sortableChildren = false;
@@ -39,7 +39,7 @@ export class RenderingSystem {
     this.layer.cullableChildren = false;
   }
 
-  attach(stage: Container): void {
+  public attach(stage: Container): void {
     this.stage = stage;
     if (!this.layer.parent) stage.addChild(this.layer);
     if (this.perfMonitor === null) {
@@ -51,11 +51,11 @@ export class RenderingSystem {
     }
   }
 
-  setTextures(textures: Texture[]): void {
+  public setTextures(textures: Texture[]): void {
     this.textures = textures;
   }
 
-  setAtlasTexture(tex: Texture): void {
+  public setAtlasTexture(tex: Texture): void {
     if (this.atlasTexture === tex && this.container !== null) return;
     this.atlasTexture = tex;
     if (this.container) {
@@ -81,13 +81,13 @@ export class RenderingSystem {
     this.pool.length = 0;
   }
 
-  setCameraTransform(x: number, y: number, zoom = 1): void {
+  public setCameraTransform(x: number, y: number, zoom = 1): void {
     this.layer.position.set(-x * zoom, -y * zoom);
     this.layer.scale.set(zoom);
   }
 
   // `slots` holds `count` slot indices into the World's component arrays.
-  renderSlots(slots: Int32Array, count: number): void {
+  public renderSlots(slots: Int32Array, count: number): void {
     if (!this.stage || !this.container) return;
 
     const world = this.world;

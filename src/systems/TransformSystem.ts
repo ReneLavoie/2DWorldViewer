@@ -3,7 +3,7 @@ import { World } from '../ecs/World';
 
 @injectable()
 export class TransformSystem {
-  update(world: World, dt: number): void {
+  public update(world: World, dt: number): void {
     const ids = world.activeIds;
     const n = world.activeCount;
     const t = world.transform;

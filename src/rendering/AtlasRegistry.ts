@@ -42,7 +42,7 @@ export class AtlasRegistry {
   private subByAlias = new Map<string, Texture>();
   private lastEntriesHash: string | null = null;
 
-  build(entries: AtlasEntry[]): Texture {
+  public build(entries: AtlasEntry[]): Texture {
     if (entries.length === 0) {
       throw new Error('AtlasRegistry.build requires at least one entry');
     }
@@ -145,20 +145,20 @@ export class AtlasRegistry {
     return atlasTex;
   }
 
-  getAtlasTexture(): Texture {
+  public getAtlasTexture(): Texture {
     if (!this.atlasTexture) throw new Error('AtlasRegistry.build() must be called first');
     return this.atlasTexture;
   }
 
-  getByOriginal(original: Texture): Texture | undefined {
+  public getByOriginal(original: Texture): Texture | undefined {
     return this.subTextures.get(original);
   }
 
-  getByAlias(alias: string): Texture | undefined {
+  public getByAlias(alias: string): Texture | undefined {
     return this.subByAlias.get(alias);
   }
 
-  resolveAll(originals: Texture[]): Texture[] {
+  public resolveAll(originals: Texture[]): Texture[] {
     return originals.map((t) => {
       const sub = this.subTextures.get(t);
       if (!sub) throw new Error('AtlasRegistry.resolveAll: texture not in atlas');

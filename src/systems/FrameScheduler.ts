@@ -10,7 +10,7 @@ import { CameraSystem } from './CameraSystem';
 
 @injectable()
 export class FrameScheduler {
-  constructor(
+  public constructor(
     @inject(TYPES.World) private readonly world: World,
     @inject(TYPES.SpatialIndexSystem) private readonly spatialIndex: SpatialIndexSystem,
     @inject(TYPES.TransformSystem) private readonly transform: TransformSystem,
@@ -20,12 +20,12 @@ export class FrameScheduler {
     @inject(TYPES.CameraSystem) private readonly camera: CameraSystem,
   ) {}
 
-  setViewport(width: number, height: number): void {
+  public setViewport(width: number, height: number): void {
     this.camera.setViewport(width, height);
     this.background.setViewport(width, height);
   }
 
-  tick(dt: number): void {
+  public tick(dt: number): void {
     const world = this.world;
     const camera = this.camera;
 

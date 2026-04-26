@@ -7,13 +7,13 @@ export class AssetLoader {
   private initialized = false;
   private loadedBundles = new Set<string>();
 
-  async init(basePath = 'assets/'): Promise<void> {
+  public async init(basePath = 'assets/'): Promise<void> {
     if (this.initialized) return;
     await Assets.init({ manifest, basePath });
     this.initialized = true;
   }
 
-  async loadBundle(
+  public async loadBundle(
     name: string | string[],
     onProgress?: ProgressCallback,
   ): Promise<void> {
@@ -22,21 +22,21 @@ export class AssetLoader {
     names.forEach((n) => this.loadedBundles.add(n));
   }
 
-  async backgroundLoadBundle(name: string | string[]): Promise<void> {
+  public async backgroundLoadBundle(name: string | string[]): Promise<void> {
     await Assets.backgroundLoadBundle(name);
   }
 
-  async unloadBundle(name: string | string[]): Promise<void> {
+  public async unloadBundle(name: string | string[]): Promise<void> {
     const names = Array.isArray(name) ? name : [name];
     await Assets.unloadBundle(names);
     names.forEach((n) => this.loadedBundles.delete(n));
   }
 
-  get<T = unknown>(alias: string): T {
+  public get<T = unknown>(alias: string): T {
     return Assets.get<T>(alias);
   }
 
-  isBundleLoaded(name: string): boolean {
+  public isBundleLoaded(name: string): boolean {
     return this.loadedBundles.has(name);
   }
 }

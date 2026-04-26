@@ -22,7 +22,7 @@ const BEHAVIOR_CODES = [KIND_LINEAR, KIND_SINUSOIDAL, KIND_CIRCULAR, KIND_SPIN];
 
 @injectable()
 export class GameObjectFactory {
-  constructor(
+  public constructor(
     @inject(TYPES.World) private readonly world: World,
   ) {}
 
@@ -118,11 +118,11 @@ export class GameObjectFactory {
     return obj;
   }
 
-  create(opts: FactoryOptions): GameObject {
+  public create(opts: FactoryOptions): GameObject {
     return this.createInto(opts);
   }
 
-  createMany(count: number, opts: FactoryOptions): GameObject[] {
+  public createMany(count: number, opts: FactoryOptions): GameObject[] {
     const world = this.world;
     world.reserve(world.size + count);
     const out: GameObject[] = new Array(count);

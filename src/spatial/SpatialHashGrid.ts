@@ -12,7 +12,7 @@ import type { World } from '../ecs/World';
 //   sequential, cache-friendly reads instead of pointer-chasing a
 //   per-cell doubly-linked list.
 export class SpatialHashGrid {
-  readonly cellSize: number;
+  public readonly cellSize: number;
   private invCellSize: number;
   private cols = 0;
   private rows = 0;
@@ -44,7 +44,7 @@ export class SpatialHashGrid {
   private boundsH = 0;
   private boundsInitialized = false;
 
-  constructor(
+  public constructor(
     private readonly world: World,
     bounds: Bounds,
     cellSize = 256,
@@ -144,7 +144,7 @@ export class SpatialHashGrid {
     return iy * this.cols + ix;
   }
 
-  update(slot: number, cx: number, cy: number, hw: number, hh: number): void {
+  public update(slot: number, cx: number, cy: number, hw: number, hh: number): void {
     if (hw > this.maxHalfW) this.maxHalfW = hw;
     if (hh > this.maxHalfH) this.maxHalfH = hh;
 
@@ -155,7 +155,7 @@ export class SpatialHashGrid {
     this.dirty = true;
   }
 
-  remove(slot: number): void {
+  public remove(slot: number): void {
     if (slot >= this.slotCap) return;
     if (this.cellIdx[slot] === -1) return;
     this.cellIdx[slot] = -1;
@@ -163,7 +163,7 @@ export class SpatialHashGrid {
   }
 
   // Number of cells the given viewport rect would touch at this level.
-  cellSpan(rw: number, rh: number): number {
+  public cellSpan(rw: number, rh: number): number {
     const cx = Math.ceil(rw * this.invCellSize) + 1;
     const cy = Math.ceil(rh * this.invCellSize) + 1;
     return cx * cy;
@@ -213,7 +213,7 @@ export class SpatialHashGrid {
     this.dirty = false;
   }
 
-  query(rx: number, ry: number, rw: number, rh: number, outSlots: Int32Array): number {
+  public query(rx: number, ry: number, rw: number, rh: number, outSlots: Int32Array): number {
     if (this.world.size === 0) return 0;
     if (this.dirty) this.rebuild();
 

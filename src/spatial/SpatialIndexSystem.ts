@@ -13,7 +13,7 @@ export class SpatialIndexSystem {
   private visibleBuf: Int32Array = new Int32Array(4096);
   private lastVisibleCount = 0;
 
-  constructor(
+  public constructor(
     @inject(TYPES.World) private readonly world: World,
   ) {
     this.worldBounds = { x: -5000, y: -5000, width: 10000, height: 10000 };
@@ -22,13 +22,13 @@ export class SpatialIndexSystem {
     this.pyramid = new SpatialPyramid(this.world, this.worldBounds, [512, 2048, 8192]);
   }
 
-  setWorldBounds(bounds: Bounds): void {
+  public setWorldBounds(bounds: Bounds): void {
     this.worldBounds = bounds;
     this.pyramid.setBounds(bounds);
     this.rebuildAll();
   }
 
-  rebuildAll(): void {
+  public rebuildAll(): void {
     const w = this.world;
     const t = w.transform;
     const tx = t.tx;
@@ -46,7 +46,7 @@ export class SpatialIndexSystem {
     }
   }
 
-  update(): void {
+  public update(): void {
     const w = this.world;
     const t = w.transform;
     const tx = t.tx;
@@ -66,7 +66,7 @@ export class SpatialIndexSystem {
     }
   }
 
-  query(rx: number, ry: number, rw: number, rh: number): Int32Array {
+  public query(rx: number, ry: number, rw: number, rh: number): Int32Array {
     if (this.visibleBuf.length < this.world.size) {
       this.visibleBuf = new Int32Array(this.world.size);
     }
@@ -74,7 +74,7 @@ export class SpatialIndexSystem {
     return this.visibleBuf;
   }
 
-  visibleCount(): number {
+  public visibleCount(): number {
     return this.lastVisibleCount;
   }
 }

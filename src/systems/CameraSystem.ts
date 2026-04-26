@@ -5,15 +5,15 @@ import { SpatialIndexSystem } from '../spatial/SpatialIndexSystem';
 
 @injectable()
 export class CameraSystem {
-  x = 0;
-  y = 0;
-  width = 800;
-  height = 600;
-  zoom = 1;
+  public x = 0;
+  public y = 0;
+  public width = 800;
+  public height = 600;
+  public zoom = 1;
   // Frustum padding floor (world units). The actual padding each frame is
   //   max(paddingFloor, world.maxSpeed * dt + world.maxHalfExtent)
   // so it expands for fast entities and shrinks for static ones.
-  paddingFloor = 0;
+  public paddingFloor = 0;
 
   private boundsX = -Infinity;
   private boundsY = -Infinity;
@@ -33,28 +33,28 @@ export class CameraSystem {
   private cellStamp = 0;
   private readonly minCellPx = 4;
 
-  constructor(
+  public constructor(
     @inject(TYPES.SpatialIndexSystem) private readonly spatialIndex: SpatialIndexSystem,
   ) {}
 
-  setViewport(width: number, height: number): void {
+  public setViewport(width: number, height: number): void {
     this.width = width;
     this.height = height;
     this.clampToBounds();
   }
 
-  setPosition(x: number, y: number): void {
+  public setPosition(x: number, y: number): void {
     const c = this.clamp(x, y);
     this.x = c.x;
     this.y = c.y;
   }
 
-  setZoom(zoom: number): void {
+  public setZoom(zoom: number): void {
     this.zoom = zoom;
     this.clampToBounds();
   }
 
-  setWorldBounds(bounds: { x: number; y: number; width: number; height: number }): void {
+  public setWorldBounds(bounds: { x: number; y: number; width: number; height: number }): void {
     this.boundsX = bounds.x;
     this.boundsY = bounds.y;
     this.boundsW = bounds.width;
@@ -92,14 +92,14 @@ export class CameraSystem {
     this.y = c.y;
   }
 
-  setLodCap(n: number): void {
+  public setLodCap(n: number): void {
     this.lodCap = n;
   }
 
   // Choose which entity slots to simulate AND render this frame, populating
   // world.activeIds/activeCount and world.lodMode. Must be called before the
   // simulation systems run so they can iterate only the active subset.
-  beginFrame(world: World, dt: number): void {
+  public beginFrame(world: World, dt: number): void {
     // Pad the visible rect so entities entering from outside aren't culled
     // before they cross the screen edge. Driven by the per-frame max travel
     // distance plus the largest sprite half-extent (for rotation safety).
@@ -200,7 +200,7 @@ export class CameraSystem {
   }
 
   // Whether the previous beginFrame() determined the camera covers the whole world.
-  isCoveringWorld(): boolean {
+  public isCoveringWorld(): boolean {
     return this.coversWorld;
   }
 }

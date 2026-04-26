@@ -45,11 +45,11 @@ export class CameraController {
   private activePans = new Set<string>();
   private activeZooms = new Set<string>();
 
-  constructor(
+  public constructor(
     @inject(TYPES.CameraSystem) private readonly camera: CameraSystem,
   ) {}
 
-  configure(opts: CameraControllerOptions = {}): void {
+  public configure(opts: CameraControllerOptions = {}): void {
     if (opts.panSpeed !== undefined) this.panSpeed = opts.panSpeed;
     if (opts.zoomStep !== undefined) this.zoomStep = opts.zoomStep;
     if (opts.minZoom !== undefined) this.minZoom = opts.minZoom;
@@ -58,7 +58,7 @@ export class CameraController {
     if (opts.zoomSmoothing !== undefined) this.zoomSmoothing = opts.zoomSmoothing;
   }
 
-  attach(target: HTMLElement, overlay: HTMLElement, getObjectCount?: () => number, getDrawCalls?: () => number): void {
+  public attach(target: HTMLElement, overlay: HTMLElement, getObjectCount?: () => number, getDrawCalls?: () => number): void {
     this.target = target;
     if (getObjectCount) this.getCount = getObjectCount;
     if (getDrawCalls) this.getDrawCalls = getDrawCalls;

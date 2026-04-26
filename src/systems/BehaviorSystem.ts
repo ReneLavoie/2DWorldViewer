@@ -7,7 +7,7 @@ const TWO_PI = Math.PI * 2;
 
 @injectable()
 export class BehaviorSystem {
-  update(world: World, dt: number): void {
+  public update(world: World, dt: number): void {
     const t = world.transform;
     const b = world.behavior;
     const tx = t.tx;

@@ -41,11 +41,11 @@ interface ComponentArray<T> {
 }
 
 export abstract class ComponentStore {
-  capacity = 0;
+  public capacity = 0;
 
   private readonly _arrays: ComponentArray<unknown>[] = [];
 
-  reserve(min: number): void {
+  public reserve(min: number): void {
     if (min <= this.capacity) return;
     let next = Math.max(this.capacity, 1);
     while (next < min) next *= 2;
@@ -56,7 +56,7 @@ export abstract class ComponentStore {
     this.capacity = next;
   }
 
-  onSlotAllocated(_slot: number): void {
+  public onSlotAllocated(_slot: number): void {
 
   }
 

@@ -20,10 +20,10 @@ export class World {
   // Component stores. Each owns its parallel typed arrays and grows in lockstep
   // with the world's slot capacity. Slots are linked to GameObject ids via
   // `indexById` and the GameObject's `index` field.
-  readonly transform = new TransformComponent();
-  readonly behavior = new BehaviorComponent();
-  readonly spatial = new SpatialComponent();
-  readonly render = new RenderComponent();
+  public readonly transform = new TransformComponent();
+  public readonly behavior = new BehaviorComponent();
+  public readonly spatial = new SpatialComponent();
+  public readonly render = new RenderComponent();
 
   private readonly stores: ComponentStore[] = [
     this.transform,
@@ -33,32 +33,32 @@ export class World {
   ];
 
   private _objects: GameObject[] = [];
-  private indexById = new Map<number, number>();
+  private readonly indexById = new Map<number, number>();
   private _nextId = 1;
 
-  capacity = 0;
-  size = 0;
+  public capacity = 0;
+  public size = 0;
 
   // Active (LOD-selected) slots that should be simulated and rendered this frame.
-  activeIds!: Int32Array;
-  activeCount = 0;
+  public activeIds!: Int32Array;
+  public activeCount = 0;
   // When true, simulation iterates `activeIds` instead of the full slot range.
-  lodMode = false;
+  public lodMode = false;
 
-  dirtyTransforms = 0;
-  structuralDirty = true;
+  public dirtyTransforms = 0;
+  public structuralDirty = true;
 
   // Tracked across all entities for camera frustum padding:
   //   pad = maxSpeed * dt + maxHalfExtent
   // Updated by GameObjectFactory at creation time.
-  maxSpeed = 0;
-  maxHalfExtent = 0;
+  public maxSpeed = 0;
+  public maxHalfExtent = 0;
 
-  constructor() {
+  public constructor() {
     this.reserve(INITIAL_CAPACITY);
   }
 
-  reserve(min: number): void {
+  public reserve(min: number): void {
     if (min <= this.capacity) return;
     let next = Math.max(this.capacity, 1);
     while (next < min) next *= 2;
@@ -69,7 +69,7 @@ export class World {
     this.capacity = next;
   }
 
-  allocateSlot(obj: GameObject): number {
+  public allocateSlot(obj: GameObject): number {
     const existing = this.indexById.get(obj.id);
     if (existing !== undefined) return existing;
     const idx = this.size;
@@ -83,38 +83,38 @@ export class World {
     return idx;
   }
 
-  get objects(): readonly GameObject[] {
+  public get objects(): readonly GameObject[] {
     return this._objects;
   }
 
-  add(obj: GameObject): void {
+  public add(obj: GameObject): void {
     if (this.indexById.has(obj.id)) return;
     this.allocateSlot(obj);
   }
 
-  get(id: number): GameObject | undefined {
+  public get(id: number): GameObject | undefined {
     const idx = this.indexById.get(id);
     return idx === undefined ? undefined : this._objects[idx];
   }
 
-  has(id: number): boolean {
+  public has(id: number): boolean {
     return this.indexById.has(id);
   }
 
-  count(): number {
+  public count(): number {
     return this.size;
   }
 
-  nextId(): number {
+  public nextId(): number {
     return this._nextId++;
   }
 
-  resetFrameDirty(): void {
+  public resetFrameDirty(): void {
     this.dirtyTransforms = 0;
     this.structuralDirty = false;
   }
 
-  clear(): void {
+  public clear(): void {
     this._objects.length = 0;
     this.indexById.clear();
     this.size = 0;
