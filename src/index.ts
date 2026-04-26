@@ -13,6 +13,7 @@ import { BackgroundSystem } from './systems/BackgroundSystem';
 import { CameraSystem } from './systems/CameraSystem';
 import { CameraController } from './ui/CameraController';
 import { AtlasRegistry } from './rendering/AtlasRegistry';
+import { DrawCallCounter } from './rendering/DrawCallCounter';
 
 async function init() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -32,7 +33,18 @@ async function init() {
     // Prefer WebGPU; Pixi v8 transparently falls back to WebGL when unavailable.
     preference: 'webgpu',
   });
+
   console.log(`[2DWorldViewer] renderer: ${app.renderer.type}`);
+
+  const drawCalls = new DrawCallCounter();
+  // app.renderer.type is 1 for WebGL, 2 for WebGPU in Pixi v8.
+  const rendererAny = app.renderer as unknown as { gl?: WebGL2RenderingContext };
+  if (rendererAny.gl) {
+    drawCalls.installWebGL(rendererAny.gl);
+  } else {
+    drawCalls.installWebGPU();
+  }
+  let lastDrawCalls = 0;
 
   window.addEventListener('resize', () => {
     app.renderer.resize(window.innerWidth, window.innerHeight);
@@ -94,27 +106,32 @@ async function init() {
   // only re-bucket entities whose transform actually changed.
   spatialIndex.rebuildAll();
 
-  cameraController.attach(canvas, uiOverlay, () => world.count());
+  cameraController.attach(canvas, uiOverlay, () => world.count(), () => lastDrawCalls);
 
   app.ticker.add((ticker) => {
     const dt = ticker.deltaMS / 1000;
 
+    // Snapshot draw calls accumulated by the previous frame's render, then
+    // reset for the upcoming render that Pixi auto-runs after this callback.
+    lastDrawCalls = drawCalls.value;
+    drawCalls.begin();
+
     cameraController.update(dt);
 
-    // 1) Decide which entities to simulate AND render this frame.
+    //Decide which entities to simulate AND render this frame.
     camera.beginFrame(world, dt);
 
-    // 2) Simulate only the active subset.
+    //Simulate only the active subset.
     behaviorSystem.update(world, dt);
     transformSystem.update(world, dt);
 
-    // 3) Re-bucket only the simulated subset; skip when the camera covers the
+    //Re-bucket only the simulated subset; skip when the camera covers the
     //    whole world (rendering uses stride sampling, not the spatial grid).
     if (!camera.isCoveringWorld() && world.dirtyTransforms > 0) {
       spatialIndex.update();
     }
 
-    // 4) Push camera transform and render the active subset.
+    //Push camera transform and render the active subset.
     camera.flush(world);
 
     world.resetFrameDirty();

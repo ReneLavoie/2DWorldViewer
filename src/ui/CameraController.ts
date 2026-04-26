@@ -38,7 +38,9 @@ export class CameraController {
   private camInfo: HTMLElement | null = null;
   private zoomInfo: HTMLElement | null = null;
   private countInfo: HTMLElement | null = null;
+  private drawsInfo: HTMLElement | null = null;
   private getCount: () => number = () => 0;
+  private getDrawCalls: () => number = () => 0;
 
   private activePans = new Set<string>();
   private activeZooms = new Set<string>();
@@ -56,12 +58,14 @@ export class CameraController {
     if (opts.zoomSmoothing !== undefined) this.zoomSmoothing = opts.zoomSmoothing;
   }
 
-  attach(target: HTMLElement, overlay: HTMLElement, getObjectCount?: () => number): void {
+  attach(target: HTMLElement, overlay: HTMLElement, getObjectCount?: () => number, getDrawCalls?: () => number): void {
     this.target = target;
     if (getObjectCount) this.getCount = getObjectCount;
+    if (getDrawCalls) this.getDrawCalls = getDrawCalls;
     this.camInfo = overlay.querySelector<HTMLElement>('#ui-cam');
     this.zoomInfo = overlay.querySelector<HTMLElement>('#ui-zoom');
     this.countInfo = overlay.querySelector<HTMLElement>('#ui-count');
+    this.drawsInfo = overlay.querySelector<HTMLElement>('#ui-draws');
 
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -183,6 +187,7 @@ export class CameraController {
     if (this.camInfo) this.camInfo.textContent = `${Math.round(this.camera.x)}, ${Math.round(this.camera.y)}`;
     if (this.zoomInfo) this.zoomInfo.textContent = `${this.camera.zoom.toFixed(2)}x`;
     if (this.countInfo) this.countInfo.textContent = String(this.getCount());
+    if (this.drawsInfo) this.drawsInfo.textContent = String(this.getDrawCalls());
   }
 
   reset(): void {
