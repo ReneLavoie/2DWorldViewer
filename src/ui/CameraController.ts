@@ -148,12 +148,28 @@ export class CameraController {
     const logTarget = Math.log(this.targetZoom);
     let nextZoom = Math.exp(logCur + (logTarget - logCur) * aZoom);
     if (Math.abs(nextZoom - this.targetZoom) / this.targetZoom < 1e-4) nextZoom = this.targetZoom;
+
+    // Lerp the *screen-center world anchor* rather than camera.x/y directly.
+    // Then derive camera.x/y from the anchor + live zoom. This keeps the world
+    // point under the screen center stable while zoom is interpolating, even
+    // though pan and zoom use different smoothing rates. Without this, camera.x
+    // catches up faster than camera.zoom and the view appears to drift toward
+    // the bottom-right while zooming in, then "settle back" on release.
+    const sx = this.camera.width * 0.5;
+    const sy = this.camera.height * 0.5;
+    const liveAnchorX = this.camera.x + sx / curZoom;
+    const liveAnchorY = this.camera.y + sy / curZoom;
+    const targetAnchorX = this.targetX + sx / this.targetZoom;
+    const targetAnchorY = this.targetY + sy / this.targetZoom;
+    const newAnchorX = liveAnchorX + (targetAnchorX - liveAnchorX) * aPan;
+    const newAnchorY = liveAnchorY + (targetAnchorY - liveAnchorY) * aPan;
+
     if (nextZoom !== curZoom) this.camera.setZoom(nextZoom);
 
-    const nx = this.camera.x + (this.targetX - this.camera.x) * aPan;
-    const ny = this.camera.y + (this.targetY - this.camera.y) * aPan;
-    const snapX = Math.abs(nx - this.targetX) < 1e-3 ? this.targetX : nx;
-    const snapY = Math.abs(ny - this.targetY) < 1e-3 ? this.targetY : ny;
+    const desiredX = newAnchorX - sx / this.camera.zoom;
+    const desiredY = newAnchorY - sy / this.camera.zoom;
+    const snapX = Math.abs(desiredX - this.targetX) < 1e-3 ? this.targetX : desiredX;
+    const snapY = Math.abs(desiredY - this.targetY) < 1e-3 ? this.targetY : desiredY;
     this.camera.setPosition(snapX, snapY);
 
     // Re-sync targets from camera in case setPosition/setZoom clamped them
@@ -178,15 +194,17 @@ export class CameraController {
 
 
   // Adjust the *target* zoom while keeping the world point under (screenX,screenY)
-  // anchored. We anchor against the live camera so the cursor stays put visually.
+  // anchored. Anchor against the *target* camera (not the live one) so that
+  // successive calls while a zoom button is held compose without drifting:
+  // the live camera lags behind the target due to smoothing, so anchoring
+  // against the live camera would re-anchor at a stale position every frame
+  // and the target would slide toward the bottom-right.
   private zoomTargetAt(screenX: number, screenY: number, factor: number): void {
     const prevTarget = this.targetZoom;
     const nextTarget = Math.min(this.maxZoom, Math.max(this.minZoom, prevTarget * factor));
     if (nextTarget === prevTarget) return;
-    // Anchor in world: where the cursor currently points (using live camera).
-    const liveZoom = this.camera.zoom;
-    const worldX = this.camera.x + screenX / liveZoom;
-    const worldY = this.camera.y + screenY / liveZoom;
+    const worldX = this.targetX + screenX / prevTarget;
+    const worldY = this.targetY + screenY / prevTarget;
     this.targetZoom = nextTarget;
     this.targetX = worldX - screenX / nextTarget;
     this.targetY = worldY - screenY / nextTarget;
