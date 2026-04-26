@@ -18,6 +18,19 @@ export class RenderingSystem {
 
   private perfMonitor: PerformanceMonitor | null = null;
 
+  // Frame counter + per-slot last-rendered frame for stale-particle sweeping.
+  private frame = 0;
+  private lastSeen: Uint32Array = new Uint32Array(0);
+
+  // Sweep configuration (in frames; assumes ~60fps).
+  private lastSweepFrame = 0;
+  private readonly sweepIntervalFrames = 300; // ~5s
+  private readonly staleThresholdFrames = 600; // ~10s
+
+  // Per-texture-index pool of reusable Particle instances.
+  private pool: Particle[][] = [];
+  private readonly maxPoolPerTex = 256;
+
   constructor(
     @inject(TYPES.World) private readonly world: World,
   ) {
@@ -60,6 +73,8 @@ export class RenderingSystem {
     this.container = c;
     this.childrenArr = c.particleChildren as Particle[];
     this.layer.addChild(c as unknown as Container);
+    // Atlas changed: existing pooled particles reference stale textures.
+    this.pool.length = 0;
   }
 
   setCameraTransform(x: number, y: number, zoom = 1): void {
@@ -85,6 +100,16 @@ export class RenderingSystem {
     const particles = r.particles;
     const textures = this.textures;
 
+    const frame = ++this.frame;
+    const worldSize = world.size;
+    if (this.lastSeen.length < worldSize) {
+      const grown = new Uint32Array(Math.max(worldSize, (this.lastSeen.length || 1024) * 2));
+      grown.set(this.lastSeen);
+      this.lastSeen = grown;
+    }
+    const lastSeen = this.lastSeen;
+    const pool = this.pool;
+
     const children = this.childrenArr;
     if (children.length < count) children.length = count;
 
@@ -93,15 +118,23 @@ export class RenderingSystem {
       const i = slots[k];
       let p = particles[i];
       if (p === null) {
-        const tex = textures[texIdx[i]];
+        const ti = texIdx[i];
+        const tex = textures[ti];
         if (tex === undefined) continue;
-        p = new Particle({
-          texture: tex,
-          anchorX: 0.5,
-          anchorY: 0.5,
-          tint: tints[i],
-          alpha: 1,
-        });
+        const bucket = pool[ti];
+        if (bucket !== undefined && bucket.length > 0) {
+          p = bucket.pop()!;
+          p.tint = tints[i];
+          p.alpha = 1;
+        } else {
+          p = new Particle({
+            texture: tex,
+            anchorX: 0.5,
+            anchorY: 0.5,
+            tint: tints[i],
+            alpha: 1,
+          });
+        }
         particles[i] = p;
       }
 
@@ -112,10 +145,42 @@ export class RenderingSystem {
       p.scaleY = tsy[i];
 
       children[n++] = p;
+      lastSeen[i] = frame;
       tdirty[i] = 0;
     }
     if (children.length !== n) children.length = n;
 
+    if (frame - this.lastSweepFrame >= this.sweepIntervalFrames) {
+      this.lastSweepFrame = frame;
+      this.sweepStale(worldSize, frame);
+    }
+
     this.container.update();
+  }
+
+  // Reclaim Particle instances for slots that haven't been rendered recently.
+  private sweepStale(size: number, frame: number): void {
+    const threshold = this.staleThresholdFrames;
+    if (frame <= threshold) return;
+    const staleBefore = frame - threshold;
+    const particles = this.world.render.particles;
+    const texIdx = this.world.render.texIdx;
+    const lastSeen = this.lastSeen;
+    const pool = this.pool;
+    const maxPool = this.maxPoolPerTex;
+    for (let i = 0; i < size; i++) {
+      const p = particles[i];
+      if (p === null) continue;
+      if (lastSeen[i] < staleBefore) {
+        const ti = texIdx[i];
+        let bucket = pool[ti];
+        if (bucket === undefined) {
+          bucket = [];
+          pool[ti] = bucket;
+        }
+        if (bucket.length < maxPool) bucket.push(p);
+        particles[i] = null;
+      }
+    }
   }
 }

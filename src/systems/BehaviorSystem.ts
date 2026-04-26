@@ -1,7 +1,7 @@
 import { injectable } from 'inversify';
 import { World } from '../ecs/World';
 import { KIND_SINUSOIDAL, KIND_CIRCULAR } from '../ecs/components/BehaviorComponent';
-import { fcos, fsin } from './FastTrig';
+import { fcos, fsin } from '../mathUtils/FastTrig';
 
 const TWO_PI = Math.PI * 2;
 
