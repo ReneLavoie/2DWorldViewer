@@ -3,10 +3,11 @@ import type { World } from '../ecs/World';
 
 // Incremental uniform spatial hash grid backed by typed arrays.
 // - Each entity is bucketed by AABB-center into one cell.
-// - Doubly-linked list per cell uses World's spatial.cellPrev/cellNext arrays
-//   so re-bucketing is O(1) without any allocation.
+// - Doubly-linked list per cell uses this grid's own per-slot arrays so
+//   multiple grids (e.g. a SpatialPyramid) can coexist without aliasing.
 // - Insert/update is a no-op when the entity stays in the same cell.
 export class SpatialHashGrid {
+  readonly cellSize: number;
   private invCellSize: number;
   private cols = 0;
   private rows = 0;
@@ -14,6 +15,12 @@ export class SpatialHashGrid {
   private originY = 0;
 
   private cellHead: Int32Array = new Int32Array(0);
+
+  // Per-slot linked-list state, owned by this grid.
+  private cellIdx: Int32Array = new Int32Array(0);
+  private cellPrev: Int32Array = new Int32Array(0);
+  private cellNext: Int32Array = new Int32Array(0);
+  private slotCap = 0;
 
   private maxHalfW = 0;
   private maxHalfH = 0;
@@ -23,6 +30,7 @@ export class SpatialHashGrid {
     bounds: Bounds,
     cellSize = 256,
   ) {
+    this.cellSize = cellSize;
     this.invCellSize = 1 / cellSize;
     this.setBounds(bounds);
   }
@@ -34,15 +42,29 @@ export class SpatialHashGrid {
     this.rows = Math.max(1, Math.ceil(bounds.height * this.invCellSize));
     this.cellHead = new Int32Array(this.cols * this.rows);
     this.cellHead.fill(-1);
-    const w = this.world;
-    if (w.size > 0) {
-      const s = w.spatial;
-      s.cellIdx.fill(-1, 0, w.size);
-      s.cellPrev.fill(-1, 0, w.size);
-      s.cellNext.fill(-1, 0, w.size);
+    if (this.slotCap > 0) {
+      this.cellIdx.fill(-1);
+      this.cellPrev.fill(-1);
+      this.cellNext.fill(-1);
     }
     this.maxHalfW = 0;
     this.maxHalfH = 0;
+  }
+
+  private ensureSlot(slot: number): void {
+    if (slot < this.slotCap) return;
+    let next = Math.max(this.slotCap, 1024);
+    while (next <= slot) next *= 2;
+    const grow = (a: Int32Array): Int32Array => {
+      const b = new Int32Array(next);
+      b.fill(-1);
+      b.set(a);
+      return b;
+    };
+    this.cellIdx = grow(this.cellIdx);
+    this.cellPrev = grow(this.cellPrev);
+    this.cellNext = grow(this.cellNext);
+    this.slotCap = next;
   }
 
   private cellAt(x: number, y: number): number {
@@ -57,39 +79,46 @@ export class SpatialHashGrid {
     if (hw > this.maxHalfW) this.maxHalfW = hw;
     if (hh > this.maxHalfH) this.maxHalfH = hh;
 
+    this.ensureSlot(slot);
     const newCell = this.cellAt(cx, cy);
-    const s = this.world.spatial;
-    const oldCell = s.cellIdx[slot];
+    const oldCell = this.cellIdx[slot];
     if (oldCell === newCell) return;
 
     if (oldCell !== -1) {
-      const prev = s.cellPrev[slot];
-      const next = s.cellNext[slot];
-      if (prev !== -1) s.cellNext[prev] = next;
+      const prev = this.cellPrev[slot];
+      const next = this.cellNext[slot];
+      if (prev !== -1) this.cellNext[prev] = next;
       else this.cellHead[oldCell] = next;
-      if (next !== -1) s.cellPrev[next] = prev;
+      if (next !== -1) this.cellPrev[next] = prev;
     }
 
     const head = this.cellHead[newCell];
-    s.cellPrev[slot] = -1;
-    s.cellNext[slot] = head;
-    if (head !== -1) s.cellPrev[head] = slot;
+    this.cellPrev[slot] = -1;
+    this.cellNext[slot] = head;
+    if (head !== -1) this.cellPrev[head] = slot;
     this.cellHead[newCell] = slot;
-    s.cellIdx[slot] = newCell;
+    this.cellIdx[slot] = newCell;
   }
 
   remove(slot: number): void {
-    const s = this.world.spatial;
-    const cell = s.cellIdx[slot];
+    if (slot >= this.slotCap) return;
+    const cell = this.cellIdx[slot];
     if (cell === -1) return;
-    const prev = s.cellPrev[slot];
-    const next = s.cellNext[slot];
-    if (prev !== -1) s.cellNext[prev] = next;
+    const prev = this.cellPrev[slot];
+    const next = this.cellNext[slot];
+    if (prev !== -1) this.cellNext[prev] = next;
     else this.cellHead[cell] = next;
-    if (next !== -1) s.cellPrev[next] = prev;
-    s.cellIdx[slot] = -1;
-    s.cellPrev[slot] = -1;
-    s.cellNext[slot] = -1;
+    if (next !== -1) this.cellPrev[next] = prev;
+    this.cellIdx[slot] = -1;
+    this.cellPrev[slot] = -1;
+    this.cellNext[slot] = -1;
+  }
+
+  // Number of cells the given viewport rect would touch at this level.
+  cellSpan(rw: number, rh: number): number {
+    const cx = Math.ceil(rw * this.invCellSize) + 1;
+    const cy = Math.ceil(rh * this.invCellSize) + 1;
+    return cx * cy;
   }
 
   query(rx: number, ry: number, rw: number, rh: number, outSlots: Int32Array): number {
@@ -114,7 +143,7 @@ export class SpatialHashGrid {
 
     const cellHead = this.cellHead;
     const t = this.world.transform;
-    const cellNext = this.world.spatial.cellNext;
+    const cellNext = this.cellNext;
     const tx = t.tx;
     const ty = t.ty;
     const tw = t.tw;
