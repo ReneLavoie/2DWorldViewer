@@ -3,9 +3,14 @@ import type { World } from '../ecs/World';
 
 // Incremental uniform spatial hash grid backed by typed arrays.
 // - Each entity is bucketed by AABB-center into one cell.
-// - Doubly-linked list per cell uses this grid's own per-slot arrays so
-//   multiple grids (e.g. a SpatialPyramid) can coexist without aliasing.
-// - Insert/update is a no-op when the entity stays in the same cell.
+// - Per-cell membership is stored as a CSR-style bucketed SoA:
+//     cellStart[cell..cell+1) indexes into a flat sorted slots[] array.
+//   The bucket layout is rebuilt lazily (counting sort) the next time a
+//   query runs after any update/remove. update/remove are O(1) and only
+//   mutate cellIdx[slot] + a dirty flag, so insert-heavy frames do not
+//   touch the bucket arrays at all. Queries then walk slots[] with
+//   sequential, cache-friendly reads instead of pointer-chasing a
+//   per-cell doubly-linked list.
 export class SpatialHashGrid {
   readonly cellSize: number;
   private invCellSize: number;
@@ -14,13 +19,21 @@ export class SpatialHashGrid {
   private originX = 0;
   private originY = 0;
 
-  private cellHead: Int32Array = new Int32Array(0);
-
-  // Per-slot linked-list state, owned by this grid.
+  // Per-slot: which cell this slot currently belongs to, or -1.
   private cellIdx: Int32Array = new Int32Array(0);
-  private cellPrev: Int32Array = new Int32Array(0);
-  private cellNext: Int32Array = new Int32Array(0);
   private slotCap = 0;
+
+  // Bucketed SoA, rebuilt lazily on first query after a mutation.
+  // cellStart has logical length ncells+1; cellStart[c+1]-cellStart[c] is
+  // the count for cell c, and slots[cellStart[c]..cellStart[c+1]) lists
+  // the slot indices in that cell.
+  private cellStart: Int32Array = new Int32Array(1);
+  private cellStartCap = 0;
+  private slots: Int32Array = new Int32Array(0);
+  private slotsCap = 0;
+  // Scratch cursor used during the scatter phase of rebuild.
+  private cellCursor: Int32Array = new Int32Array(0);
+  private dirty = true;
 
   private maxHalfW = 0;
   private maxHalfH = 0;
@@ -62,35 +75,25 @@ export class SpatialHashGrid {
     const canGrow = sameOrigin && newCols >= this.cols && newRows >= this.rows;
 
     if (canGrow && (newCols !== this.cols || newRows !== this.rows)) {
-      // Lazy growth: remap existing bucketing into a larger cellHead
-      // without touching cellIdx/Prev/Next for unused slots.
+      // Lazy growth: only remap cellIdx values from the old (col,row) layout
+      // to the new linear cell index. The bucket arrays will be rebuilt on
+      // the next query, so we don't bother touching them here.
       const oldCols = this.cols;
-      const oldRows = this.rows;
-      const oldHead = this.cellHead;
-      const newHead = new Int32Array(newCols * newRows);
-      newHead.fill(-1);
       const cellIdx = this.cellIdx;
-      for (let row = 0; row < oldRows; row++) {
-        const oldRowBase = row * oldCols;
-        const newRowBase = row * newCols;
-        for (let col = 0; col < oldCols; col++) {
-          const head = oldHead[oldRowBase + col];
-          if (head === -1) continue;
-          const newCell = newRowBase + col;
-          newHead[newCell] = head;
-          // Remap cellIdx for every slot in this bucket's chain.
-          let s = head;
-          while (s !== -1) {
-            cellIdx[s] = newCell;
-            s = this.cellNext[s];
-          }
-        }
+      const slotCap = this.slotCap;
+      for (let s = 0; s < slotCap; s++) {
+        const c = cellIdx[s];
+        if (c < 0) continue;
+        const row = (c / oldCols) | 0;
+        const col = c - row * oldCols;
+        cellIdx[s] = row * newCols + col;
       }
-      this.cellHead = newHead;
       this.cols = newCols;
       this.rows = newRows;
       this.boundsW = bounds.width;
       this.boundsH = bounds.height;
+      this.ensureCellArrays(newCols * newRows);
+      this.dirty = true;
       return;
     }
 
@@ -100,13 +103,7 @@ export class SpatialHashGrid {
     this.originY = bounds.y;
     this.cols = newCols;
     this.rows = newRows;
-    this.cellHead = new Int32Array(newCols * newRows);
-    this.cellHead.fill(-1);
-    if (this.slotCap > 0) {
-      this.cellIdx.fill(-1);
-      this.cellPrev.fill(-1);
-      this.cellNext.fill(-1);
-    }
+    if (this.slotCap > 0) this.cellIdx.fill(-1);
     this.maxHalfW = 0;
     this.maxHalfH = 0;
     this.boundsX = bounds.x;
@@ -114,21 +111,28 @@ export class SpatialHashGrid {
     this.boundsW = bounds.width;
     this.boundsH = bounds.height;
     this.boundsInitialized = true;
+    this.ensureCellArrays(newCols * newRows);
+    this.dirty = true;
+  }
+
+  private ensureCellArrays(ncells: number): void {
+    const need = ncells + 1;
+    if (need <= this.cellStartCap) return;
+    let cap = Math.max(this.cellStartCap, 16);
+    while (cap < need) cap *= 2;
+    this.cellStart = new Int32Array(cap);
+    this.cellCursor = new Int32Array(cap);
+    this.cellStartCap = cap;
   }
 
   private ensureSlot(slot: number): void {
     if (slot < this.slotCap) return;
     let next = Math.max(this.slotCap, 1024);
     while (next <= slot) next *= 2;
-    const grow = (a: Int32Array): Int32Array => {
-      const b = new Int32Array(next);
-      b.fill(-1);
-      b.set(a);
-      return b;
-    };
-    this.cellIdx = grow(this.cellIdx);
-    this.cellPrev = grow(this.cellPrev);
-    this.cellNext = grow(this.cellNext);
+    const b = new Int32Array(next);
+    b.fill(-1);
+    b.set(this.cellIdx);
+    this.cellIdx = b;
     this.slotCap = next;
   }
 
@@ -146,37 +150,16 @@ export class SpatialHashGrid {
 
     this.ensureSlot(slot);
     const newCell = this.cellAt(cx, cy);
-    const oldCell = this.cellIdx[slot];
-    if (oldCell === newCell) return;
-
-    if (oldCell !== -1) {
-      const prev = this.cellPrev[slot];
-      const next = this.cellNext[slot];
-      if (prev !== -1) this.cellNext[prev] = next;
-      else this.cellHead[oldCell] = next;
-      if (next !== -1) this.cellPrev[next] = prev;
-    }
-
-    const head = this.cellHead[newCell];
-    this.cellPrev[slot] = -1;
-    this.cellNext[slot] = head;
-    if (head !== -1) this.cellPrev[head] = slot;
-    this.cellHead[newCell] = slot;
+    if (this.cellIdx[slot] === newCell) return;
     this.cellIdx[slot] = newCell;
+    this.dirty = true;
   }
 
   remove(slot: number): void {
     if (slot >= this.slotCap) return;
-    const cell = this.cellIdx[slot];
-    if (cell === -1) return;
-    const prev = this.cellPrev[slot];
-    const next = this.cellNext[slot];
-    if (prev !== -1) this.cellNext[prev] = next;
-    else this.cellHead[cell] = next;
-    if (next !== -1) this.cellPrev[next] = prev;
+    if (this.cellIdx[slot] === -1) return;
     this.cellIdx[slot] = -1;
-    this.cellPrev[slot] = -1;
-    this.cellNext[slot] = -1;
+    this.dirty = true;
   }
 
   // Number of cells the given viewport rect would touch at this level.
@@ -186,8 +169,53 @@ export class SpatialHashGrid {
     return cx * cy;
   }
 
+  // Counting-sort rebuild of the bucketed SoA. Two linear passes over
+  // cellIdx (length slotCap) plus a prefix sum over cellStart. Within a
+  // cell, slots are emitted in ascending slot order, which keeps the
+  // subsequent transform-array reads roughly forward-scanning.
+  private rebuild(): void {
+    const ncells = this.cols * this.rows;
+    const cellStart = this.cellStart;
+    const cellCursor = this.cellCursor;
+    const cellIdx = this.cellIdx;
+    const slotCap = this.slotCap;
+
+    // Phase 1: count into cellStart[c+1] so the in-place prefix sum below
+    // produces the correct start offsets.
+    for (let i = 0; i <= ncells; i++) cellStart[i] = 0;
+    let total = 0;
+    for (let s = 0; s < slotCap; s++) {
+      const c = cellIdx[s];
+      if (c >= 0) {
+        cellStart[c + 1]++;
+        total++;
+      }
+    }
+
+    // Phase 2: exclusive prefix sum -> bucket start offsets.
+    for (let c = 0; c < ncells; c++) cellStart[c + 1] += cellStart[c];
+
+    // Phase 3: scatter slots into their buckets. Use cellCursor as a
+    // running write index per cell so cellStart is preserved for queries.
+    if (total > this.slotsCap) {
+      let cap = Math.max(this.slotsCap, 1024);
+      while (cap < total) cap *= 2;
+      this.slots = new Int32Array(cap);
+      this.slotsCap = cap;
+    }
+    const slots = this.slots;
+    for (let i = 0; i < ncells; i++) cellCursor[i] = cellStart[i];
+    for (let s = 0; s < slotCap; s++) {
+      const c = cellIdx[s];
+      if (c >= 0) slots[cellCursor[c]++] = s;
+    }
+
+    this.dirty = false;
+  }
+
   query(rx: number, ry: number, rw: number, rh: number, outSlots: Int32Array): number {
     if (this.world.size === 0) return 0;
+    if (this.dirty) this.rebuild();
 
     const padX = this.maxHalfW;
     const padY = this.maxHalfH;
@@ -206,9 +234,9 @@ export class SpatialHashGrid {
     if (cy1 >= this.rows) cy1 = this.rows - 1;
     if (cx1 < cx0 || cy1 < cy0) return 0;
 
-    const cellHead = this.cellHead;
+    const cellStart = this.cellStart;
+    const slots = this.slots;
     const t = this.world.transform;
-    const cellNext = this.cellNext;
     const tx = t.tx;
     const ty = t.ty;
     const tw = t.tw;
@@ -224,8 +252,10 @@ export class SpatialHashGrid {
     for (let y = cy0; y <= cy1; y++) {
       const rowBase = y * cols;
       for (let x = cx0; x <= cx1; x++) {
-        let slot = cellHead[rowBase + x];
-        while (slot !== -1) {
+        const cell = rowBase + x;
+        const end = cellStart[cell + 1];
+        for (let i = cellStart[cell]; i < end; i++) {
+          const slot = slots[i];
           const sxAbs = tsx[slot] < 0 ? -tsx[slot] : tsx[slot];
           const syAbs = tsy[slot] < 0 ? -tsy[slot] : tsy[slot];
           const w = tw[slot] * sxAbs;
@@ -236,7 +266,6 @@ export class SpatialHashGrid {
             if (n < cap) outSlots[n++] = slot;
             else return n;
           }
-          slot = cellNext[slot];
         }
       }
     }
