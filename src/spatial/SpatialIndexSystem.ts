@@ -1,12 +1,11 @@
 import { inject, injectable } from 'inversify';
 import { TYPES } from '../di/types';
-import { Bounds } from './Quadtree';
+import { Bounds } from './Bounds';
 import { SpatialHashGrid } from './SpatialHashGrid';
 import { World } from '../ecs/World';
-import { GameObject } from '../ecs/GameObject';
 
 @injectable()
-export class QuadtreeSystem {
+export class SpatialIndexSystem {
   private grid: SpatialHashGrid;
   private worldBounds: Bounds;
 
@@ -76,15 +75,7 @@ export class QuadtreeSystem {
     return this.visibleBuf;
   }
 
-  queryBounds(range: Bounds): Int32Array {
-    return this.query(range.x, range.y, range.width, range.height);
-  }
-
   visibleCount(): number {
     return this.lastVisibleCount;
-  }
-
-  releaseObject(obj: GameObject): void {
-    if (obj.index >= 0) this.grid.remove(obj.index);
   }
 }

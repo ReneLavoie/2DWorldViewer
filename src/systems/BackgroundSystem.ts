@@ -63,8 +63,4 @@ export class BackgroundSystem {
     this.sprite.tilePosition.set(-x * zoom, -y * zoom);
     this.sprite.tileScale.set(zoom, zoom);
   }
-
-  getLayer(): Container {
-    return this.layer;
-  }
 }

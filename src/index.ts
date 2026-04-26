@@ -5,7 +5,7 @@ import { TYPES } from './di/types';
 import { AssetLoader } from './assets/AssetLoader';
 import { World } from './ecs/World';
 import { GameObjectFactory } from './ecs/GameObjectFactory';
-import { QuadtreeSystem } from './spatial/QuadtreeSystem';
+import { SpatialIndexSystem } from './spatial/SpatialIndexSystem';
 import { TransformSystem } from './systems/TransformSystem';
 import { BehaviorSystem } from './systems/BehaviorSystem';
 import { RenderingSystem } from './systems/RenderingSystem';
@@ -48,7 +48,7 @@ async function init() {
 
   const world = container.get<World>(TYPES.World);
   const factory = container.get<GameObjectFactory>(TYPES.GameObjectFactory);
-  const quadtree = container.get<QuadtreeSystem>(TYPES.QuadtreeSystem);
+  const spatialIndex = container.get<SpatialIndexSystem>(TYPES.SpatialIndexSystem);
   const transformSystem = container.get<TransformSystem>(TYPES.TransformSystem);
   const behaviorSystem = container.get<BehaviorSystem>(TYPES.BehaviorSystem);
   const rendering = container.get<RenderingSystem>(TYPES.RenderingSystem);
@@ -57,7 +57,7 @@ async function init() {
   const cameraController = container.get<CameraController>(TYPES.CameraController);
 
   const worldBounds = { x: -10000, y: -10000, width: 20000, height: 20000 };
-  quadtree.setWorldBounds(worldBounds);
+  spatialIndex.setWorldBounds(worldBounds);
   camera.setWorldBounds(worldBounds);
   camera.setViewport(window.innerWidth, window.innerHeight);
 
@@ -82,8 +82,6 @@ async function init() {
   const gameObjTextures = gameObjOriginals.map((e) => atlas.getByOriginal(e.texture)!);
   rendering.setTextures(gameObjTextures);
 
-  rendering.setZBucketCount(10);
-
   const OBJECT_COUNT = 1_000_000;
   factory.createMany(OBJECT_COUNT, {
     worldBounds,
@@ -91,7 +89,7 @@ async function init() {
   });
   // Bulk-insert all entities into the spatial grid once. Subsequent frames
   // only re-bucket entities whose transform actually changed.
-  quadtree.rebuildAll();
+  spatialIndex.rebuildAll();
 
   cameraController.attach(canvas, uiOverlay, () => world.count());
 
@@ -110,7 +108,7 @@ async function init() {
     // 3) Re-bucket only the simulated subset; skip when the camera covers the
     //    whole world (rendering uses stride sampling, not the spatial grid).
     if (!camera.isCoveringWorld() && world.dirtyTransforms > 0) {
-      quadtree.update();
+      spatialIndex.update();
     }
 
     // 4) Push camera transform and render the active subset.

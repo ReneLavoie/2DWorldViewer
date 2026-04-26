@@ -1,7 +1,7 @@
 import { inject, injectable } from 'inversify';
 import { TYPES } from '../di/types';
 import { World } from '../ecs/World';
-import { QuadtreeSystem } from '../spatial/QuadtreeSystem';
+import { SpatialIndexSystem } from '../spatial/SpatialIndexSystem';
 import { RenderingSystem } from './RenderingSystem';
 import { BackgroundSystem } from './BackgroundSystem';
 
@@ -20,27 +20,17 @@ export class CameraSystem {
   private boundsH = Infinity;
   private hasBounds = false;
 
-  private dirty = true;
-  private lastX = Number.NaN;
-  private lastY = Number.NaN;
-  private lastZoom = Number.NaN;
-  private lastW = 0;
-  private lastH = 0;
-
-  // Reusable buffer for slot indices selected this frame.
-  private fullBuf: Int32Array = new Int32Array(0);
   // Maximum number of objects to render at extreme zoom-out.
   private lodCap = 30000;
   private coversWorld = false;
 
   constructor(
-    @inject(TYPES.QuadtreeSystem) private readonly quadtree: QuadtreeSystem,
+    @inject(TYPES.SpatialIndexSystem) private readonly spatialIndex: SpatialIndexSystem,
     @inject(TYPES.RenderingSystem) private readonly rendering: RenderingSystem,
     @inject(TYPES.BackgroundSystem) private readonly background: BackgroundSystem,
   ) {}
 
   setViewport(width: number, height: number): void {
-    if (width !== this.width || height !== this.height) this.dirty = true;
     this.width = width;
     this.height = height;
     this.background.setViewport(width, height);
@@ -49,13 +39,11 @@ export class CameraSystem {
 
   setPosition(x: number, y: number): void {
     const c = this.clamp(x, y);
-    if (c.x !== this.x || c.y !== this.y) this.dirty = true;
     this.x = c.x;
     this.y = c.y;
   }
 
   setZoom(zoom: number): void {
-    if (zoom !== this.zoom) this.dirty = true;
     this.zoom = zoom;
     this.clampToBounds();
   }
@@ -94,39 +82,8 @@ export class CameraSystem {
 
   private clampToBounds(): void {
     const c = this.clamp(this.x, this.y);
-    if (c.x !== this.x || c.y !== this.y) {
-      this.x = c.x;
-      this.y = c.y;
-      this.dirty = true;
-    }
-  }
-
-  getViewWidth(): number {
-    return this.width / this.zoom;
-  }
-
-  getViewHeight(): number {
-    return this.height / this.zoom;
-  }
-
-  isDirty(): boolean {
-    if (this.dirty) return true;
-    return (
-      this.x !== this.lastX ||
-      this.y !== this.lastY ||
-      this.zoom !== this.lastZoom ||
-      this.width !== this.lastW ||
-      this.height !== this.lastH
-    );
-  }
-
-  private snapshot(): void {
-    this.lastX = this.x;
-    this.lastY = this.y;
-    this.lastZoom = this.zoom;
-    this.lastW = this.width;
-    this.lastH = this.height;
-    this.dirty = false;
+    this.x = c.x;
+    this.y = c.y;
   }
 
   setLodCap(n: number): void {
@@ -171,13 +128,12 @@ export class CameraSystem {
       for (let i = 0; i < totalSize; i += stride) buf[n++] = i;
       world.activeCount = n;
       world.lodMode = true;
-      if (this.fullBuf.length < n) this.fullBuf = new Int32Array(n);
       return;
     }
 
     // Windowed: query the spatial grid for visible slots.
-    const slots = this.quadtree.query(vx, vy, w, h);
-    let count = this.quadtree.visibleCount();
+    const slots = this.spatialIndex.query(vx, vy, w, h);
+    let count = this.spatialIndex.visibleCount();
 
     const cap = this.lodCap;
     if (count > cap) {
@@ -199,7 +155,6 @@ export class CameraSystem {
     this.background.setCamera(this.x, this.y, this.zoom);
     this.rendering.setCameraTransform(this.x, this.y, this.zoom);
     this.rendering.renderSlots(world.activeIds, world.activeCount);
-    this.snapshot();
   }
 
   // Whether the previous beginFrame() determined the camera covers the whole world.

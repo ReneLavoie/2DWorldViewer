@@ -2,8 +2,7 @@ import { inject, injectable } from 'inversify';
 import { Texture } from 'pixi.js';
 import { TYPES } from '../di/types';
 import { GameObject } from './GameObject';
-import { RendererComponent } from './components/RendererComponent';
-import { Bounds } from '../spatial/Quadtree';
+import { Bounds } from '../spatial/Bounds';
 import {
   World,
   KIND_LINEAR,
@@ -23,9 +22,6 @@ const BEHAVIOR_CODES = [KIND_LINEAR, KIND_SINUSOIDAL, KIND_CIRCULAR, KIND_SPIN];
 
 @injectable()
 export class GameObjectFactory {
-  private readonly objectPool: GameObject[] = [];
-  private readonly rendererPool: RendererComponent[] = [];
-
   constructor(
     @inject(TYPES.World) private readonly world: World,
   ) {}
@@ -37,8 +33,8 @@ export class GameObjectFactory {
     }
     const world = this.world;
 
-    const obj = this.objectPool.pop() ?? new GameObject();
-    if (obj.index === -1) world.allocateSlot(obj);
+    const obj = new GameObject();
+    world.allocateSlot(obj);
     const i = obj.index;
 
     const minSize = opts.minSize ?? 24;
@@ -61,18 +57,9 @@ export class GameObjectFactory {
     world.tvr[i] = 0;
     world.tdirty[i] = 1;
 
-    const r = this.rendererPool.pop() ?? new RendererComponent({ texture: Texture.WHITE });
     const texIndex = (Math.random() * textures.length) | 0;
-    r.texture = textures[texIndex];
-    r.tint = 0xffffff;
-    r.alpha = 1;
-    r.anchorX = 0.5;
-    r.anchorY = 0.5;
-    r.zIndex = (Math.random() * 10) | 0;
-    obj.renderer = r;
-
     world.texIdx[i] = texIndex;
-    world.tint[i] = r.tint >>> 0;
+    world.tint[i] = 0xffffff;
 
     const kind = BEHAVIOR_CODES[(Math.random() * BEHAVIOR_CODES.length) | 0];
     world.bkind[i] = kind;
@@ -112,9 +99,7 @@ export class GameObjectFactory {
   }
 
   create(opts: FactoryOptions): GameObject {
-    const obj = this.createInto(opts);
-    this.world.rebuildPackedLists();
-    return obj;
+    return this.createInto(opts);
   }
 
   createMany(count: number, opts: FactoryOptions): GameObject[] {
@@ -144,14 +129,6 @@ export class GameObjectFactory {
       out[n] = obj;
     }
 
-    world.rebuildPackedLists();
     return out;
-  }
-
-  release(obj: GameObject): void {
-    if (obj.renderer) this.rendererPool.push(obj.renderer);
-    obj.reset();
-    obj.id = GameObject.nextId();
-    this.objectPool.push(obj);
   }
 }

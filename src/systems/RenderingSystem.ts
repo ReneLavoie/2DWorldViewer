@@ -2,7 +2,6 @@ import { inject, injectable } from 'inversify';
 import { Container, Particle, ParticleContainer, Texture } from 'pixi.js';
 import { PerformanceMonitor } from 'pixi-msdf-textfield';
 import { TYPES } from '../di/types';
-import { GameObject } from '../ecs/GameObject';
 import { AssetLoader } from '../assets/AssetLoader';
 import { World } from '../ecs/World';
 
@@ -69,14 +68,6 @@ export class RenderingSystem {
     this.layer.addChild(c as unknown as Container);
   }
 
-  setZBucketCount(_n: number): void {
-    // Z-buckets removed; ParticleContainer renders in array order.
-  }
-
-  prewarmSprites(_count: number): void {
-    // No-op: particles are created lazily per entity.
-  }
-
   setCameraTransform(x: number, y: number, zoom = 1): void {
     this.layer.position.set(-x * zoom, -y * zoom);
     this.layer.scale.set(zoom);
@@ -130,13 +121,5 @@ export class RenderingSystem {
     if (children.length !== n) children.length = n;
 
     this.container.update();
-  }
-
-  removeObject(obj: GameObject): void {
-    const i = obj.index;
-    if (i >= 0) this.world.particles[i] = null;
-    obj.displayParticle = null;
-    obj.displayActive = false;
-    obj.displayTick = 0;
   }
 }

@@ -1,4 +1,4 @@
-import type { Bounds } from './Quadtree';
+import type { Bounds } from './Bounds';
 import type { World } from '../ecs/World';
 
 // Incremental uniform spatial hash grid backed by typed arrays.
@@ -46,10 +46,6 @@ export class SpatialHashGrid {
     }
     this.maxHalfW = 0;
     this.maxHalfH = 0;
-  }
-
-  setCellSize(cellSize: number): void {
-    this.invCellSize = 1 / cellSize;
   }
 
   // Compute the cell index for a world-space point. Clamps to grid bounds.

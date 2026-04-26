@@ -2,7 +2,6 @@ import { injectable } from 'inversify';
 import type { Particle } from 'pixi.js';
 import { GameObject } from './GameObject';
 
-export const KIND_IDLE = 0;
 export const KIND_LINEAR = 1;
 export const KIND_SINUSOIDAL = 2;
 export const KIND_CIRCULAR = 3;
@@ -48,13 +47,6 @@ export class World {
   texIdx!: Uint8Array;
   tint!: Uint32Array;
   particles!: (Particle | null)[];
-
-  sinIds!: Int32Array;
-  sinCount = 0;
-  circIds!: Int32Array;
-  circCount = 0;
-  movingIds!: Int32Array;
-  movingCount = 0;
 
   // Active (LOD-selected) slots that should be simulated and rendered this frame.
   activeIds!: Int32Array;
@@ -104,9 +96,6 @@ export class World {
     this.tint = new Uint32Array(cap);
     this.particles = new Array(cap).fill(null);
 
-    this.sinIds = new Int32Array(cap);
-    this.circIds = new Int32Array(cap);
-    this.movingIds = new Int32Array(cap);
     this.activeIds = new Int32Array(cap);
   }
 
@@ -171,9 +160,6 @@ export class World {
     for (let i = 0; i < this.particles.length; i++) newParticles[i] = this.particles[i];
     this.particles = newParticles;
 
-    this.sinIds = growI(this.sinIds);
-    this.circIds = growI(this.circIds);
-    this.movingIds = growI(this.movingIds);
     this.activeIds = growI(this.activeIds);
 
     this.capacity = next;
@@ -193,29 +179,6 @@ export class World {
     this.particles[idx] = null;
     this.structuralDirty = true;
     return idx;
-  }
-
-  rebuildPackedLists(): void {
-    const n = this.size;
-    const bkind = this.bkind;
-    const tvx = this.tvx;
-    const tvy = this.tvy;
-    const tvr = this.tvr;
-    const sinIds = this.sinIds;
-    const circIds = this.circIds;
-    const movingIds = this.movingIds;
-    let sc = 0;
-    let cc = 0;
-    let mc = 0;
-    for (let i = 0; i < n; i++) {
-      const k = bkind[i];
-      if (k === KIND_SINUSOIDAL) sinIds[sc++] = i;
-      else if (k === KIND_CIRCULAR) circIds[cc++] = i;
-      if (tvx[i] !== 0 || tvy[i] !== 0 || tvr[i] !== 0) movingIds[mc++] = i;
-    }
-    this.sinCount = sc;
-    this.circCount = cc;
-    this.movingCount = mc;
   }
 
   get objects(): readonly GameObject[] {
@@ -249,9 +212,6 @@ export class World {
     this._objects.length = 0;
     this.indexById.clear();
     this.size = 0;
-    this.sinCount = 0;
-    this.circCount = 0;
-    this.movingCount = 0;
     this.activeCount = 0;
     this.lodMode = false;
     this.structuralDirty = true;

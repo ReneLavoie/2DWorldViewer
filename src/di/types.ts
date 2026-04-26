@@ -2,7 +2,7 @@ export const TYPES = {
   AssetLoader: Symbol.for('AssetLoader'),
   World: Symbol.for('World'),
   GameObjectFactory: Symbol.for('GameObjectFactory'),
-  QuadtreeSystem: Symbol.for('QuadtreeSystem'),
+  SpatialIndexSystem: Symbol.for('SpatialIndexSystem'),
   TransformSystem: Symbol.for('TransformSystem'),
   BehaviorSystem: Symbol.for('BehaviorSystem'),
   RenderingSystem: Symbol.for('RenderingSystem'),
