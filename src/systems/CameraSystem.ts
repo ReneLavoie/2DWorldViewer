@@ -24,6 +24,14 @@ export class CameraSystem {
   private lodCap = 30000;
   private coversWorld = false;
 
+  // Density LOD: a transient screen-space cell grid used to keep at most one
+  // sprite per cell, which preserves spatial coverage instead of randomly
+  // dropping entities the way stride-sampling does. `cellMark` is stamped per
+  // frame so it doesn't need clearing.
+  private cellMark: Uint32Array = new Uint32Array(0);
+  private cellStamp = 0;
+  private readonly minCellPx = 4;
+
   constructor(
     @inject(TYPES.SpatialIndexSystem) private readonly spatialIndex: SpatialIndexSystem,
     @inject(TYPES.RenderingSystem) private readonly rendering: RenderingSystem,
@@ -115,17 +123,43 @@ export class CameraSystem {
       return;
     }
 
+    const cap = this.lodCap;
+    const tx = world.transform.tx;
+    const ty = world.transform.ty;
+
+    // Cell size in screen pixels chosen so that the visible cell grid has
+    // roughly `cap` cells. Translates to a world-space cell size via zoom.
+    const screenArea = this.width * this.height;
+    let cellPx = Math.sqrt(screenArea / Math.max(1, cap));
+    if (cellPx < this.minCellPx) cellPx = this.minCellPx;
+    const cellW = cellPx / this.zoom;
+    const invCell = 1 / cellW;
+    const cols = Math.max(1, Math.ceil(w * invCell));
+    const rows = Math.max(1, Math.ceil(h * invCell));
+    const cellCount = cols * rows;
+    if (this.cellMark.length < cellCount) {
+      this.cellMark = new Uint32Array(cellCount);
+      this.cellStamp = 0;
+    }
+    const cellMark = this.cellMark;
+    const stamp = ++this.cellStamp;
+
     if (this.coversWorld) {
-      // Entire world visible: stride-sample up to lodCap entities.
-      const cap = this.lodCap;
-      const stride = totalSize > cap ? Math.ceil(totalSize / cap) : 1;
-      const renderCount = Math.ceil(totalSize / stride);
-      if (world.activeIds.length < renderCount) {
-        world.activeIds = new Int32Array(renderCount);
-      }
+      // Entire world visible: bin every entity into the screen cell grid and
+      // keep the first per cell. Bounded by `cap` via early exit.
+      if (world.activeIds.length < cap) world.activeIds = new Int32Array(cap);
       const buf = world.activeIds;
       let n = 0;
-      for (let i = 0; i < totalSize; i += stride) buf[n++] = i;
+      for (let i = 0; i < totalSize; i++) {
+        const cx = (tx[i] - vx) * invCell;
+        const cy = (ty[i] - vy) * invCell;
+        if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) continue;
+        const ci = (cy | 0) * cols + (cx | 0);
+        if (cellMark[ci] === stamp) continue;
+        cellMark[ci] = stamp;
+        buf[n++] = i;
+        if (n >= cap) break;
+      }
       world.activeCount = n;
       world.lodMode = true;
       return;
@@ -133,19 +167,33 @@ export class CameraSystem {
 
     // Windowed: query the spatial grid for visible slots.
     const slots = this.spatialIndex.query(vx, vy, w, h);
-    let count = this.spatialIndex.visibleCount();
+    const count = this.spatialIndex.visibleCount();
 
-    const cap = this.lodCap;
-    if (count > cap) {
-      const stride = Math.ceil(count / cap);
-      let n = 0;
-      for (let i = 0; i < count; i += stride) slots[n++] = slots[i];
-      count = n;
+    if (count <= cap) {
+      // Sparse enough that every visible entity fits the budget; no LOD needed.
+      if (world.activeIds.length < count) world.activeIds = new Int32Array(count);
+      world.activeIds.set(slots.subarray(0, count));
+      world.activeCount = count;
+      world.lodMode = true;
+      return;
     }
 
-    if (world.activeIds.length < count) world.activeIds = new Int32Array(count);
-    world.activeIds.set(slots.subarray(0, count));
-    world.activeCount = count;
+    // Dense: density-bin into screen cells, keeping first per cell.
+    if (world.activeIds.length < cap) world.activeIds = new Int32Array(cap);
+    const buf = world.activeIds;
+    let n = 0;
+    for (let k = 0; k < count; k++) {
+      const i = slots[k];
+      const cx = (tx[i] - vx) * invCell;
+      const cy = (ty[i] - vy) * invCell;
+      if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) continue;
+      const ci = (cy | 0) * cols + (cx | 0);
+      if (cellMark[ci] === stamp) continue;
+      cellMark[ci] = stamp;
+      buf[n++] = i;
+      if (n >= cap) break;
+    }
+    world.activeCount = n;
     world.lodMode = true;
   }
 
