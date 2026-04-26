@@ -25,6 +25,12 @@ export class SpatialHashGrid {
   private maxHalfW = 0;
   private maxHalfH = 0;
 
+  private boundsX = 0;
+  private boundsY = 0;
+  private boundsW = 0;
+  private boundsH = 0;
+  private boundsInitialized = false;
+
   constructor(
     private readonly world: World,
     bounds: Bounds,
@@ -36,11 +42,65 @@ export class SpatialHashGrid {
   }
 
   setBounds(bounds: Bounds): void {
+    // No-op if bounds match what we already have.
+    if (
+      this.boundsInitialized &&
+      bounds.x === this.boundsX &&
+      bounds.y === this.boundsY &&
+      bounds.width === this.boundsW &&
+      bounds.height === this.boundsH
+    ) {
+      return;
+    }
+
+    const newCols = Math.max(1, Math.ceil(bounds.width * this.invCellSize));
+    const newRows = Math.max(1, Math.ceil(bounds.height * this.invCellSize));
+    const sameOrigin =
+      this.boundsInitialized &&
+      bounds.x === this.boundsX &&
+      bounds.y === this.boundsY;
+    const canGrow = sameOrigin && newCols >= this.cols && newRows >= this.rows;
+
+    if (canGrow && (newCols !== this.cols || newRows !== this.rows)) {
+      // Lazy growth: remap existing bucketing into a larger cellHead
+      // without touching cellIdx/Prev/Next for unused slots.
+      const oldCols = this.cols;
+      const oldRows = this.rows;
+      const oldHead = this.cellHead;
+      const newHead = new Int32Array(newCols * newRows);
+      newHead.fill(-1);
+      const cellIdx = this.cellIdx;
+      for (let row = 0; row < oldRows; row++) {
+        const oldRowBase = row * oldCols;
+        const newRowBase = row * newCols;
+        for (let col = 0; col < oldCols; col++) {
+          const head = oldHead[oldRowBase + col];
+          if (head === -1) continue;
+          const newCell = newRowBase + col;
+          newHead[newCell] = head;
+          // Remap cellIdx for every slot in this bucket's chain.
+          let s = head;
+          while (s !== -1) {
+            cellIdx[s] = newCell;
+            s = this.cellNext[s];
+          }
+        }
+      }
+      this.cellHead = newHead;
+      this.cols = newCols;
+      this.rows = newRows;
+      this.boundsW = bounds.width;
+      this.boundsH = bounds.height;
+      return;
+    }
+
+    // Origin/cellSize changed or extents shrank: full reset is required
+    // because stale cellIdx values would point at out-of-range cells.
     this.originX = bounds.x;
     this.originY = bounds.y;
-    this.cols = Math.max(1, Math.ceil(bounds.width * this.invCellSize));
-    this.rows = Math.max(1, Math.ceil(bounds.height * this.invCellSize));
-    this.cellHead = new Int32Array(this.cols * this.rows);
+    this.cols = newCols;
+    this.rows = newRows;
+    this.cellHead = new Int32Array(newCols * newRows);
     this.cellHead.fill(-1);
     if (this.slotCap > 0) {
       this.cellIdx.fill(-1);
@@ -49,6 +109,11 @@ export class SpatialHashGrid {
     }
     this.maxHalfW = 0;
     this.maxHalfH = 0;
+    this.boundsX = bounds.x;
+    this.boundsY = bounds.y;
+    this.boundsW = bounds.width;
+    this.boundsH = bounds.height;
+    this.boundsInitialized = true;
   }
 
   private ensureSlot(slot: number): void {
