@@ -81,22 +81,39 @@ export class GameObjectFactory {
       b.bspeed[i] = speed;
       t.tvx[i] = Math.cos(direction) * speed;
       t.tvy[i] = Math.sin(direction) * speed;
+      if (speed > world.maxSpeed) world.maxSpeed = speed;
     } else if (kind === KIND_SINUSOIDAL) {
-      b.bspeed[i] = 20 + Math.random() * 60;
-      b.bamp[i] = 20 + Math.random() * 60;
+      const sp = 20 + Math.random() * 60;
+      const amp = 20 + Math.random() * 60;
+      b.bspeed[i] = sp;
+      b.bamp[i] = amp;
       b.bfreq[i] = 0.2 + Math.random() * 1.3;
       b.bphase[i] = Math.random() * Math.PI * 2;
+      // Peak speed magnitude is sqrt(sp^2 + amp^2) (vertical speed = amp*cos).
+      const sinSpeed = Math.sqrt(sp * sp + amp * amp);
+      if (sinSpeed > world.maxSpeed) world.maxSpeed = sinSpeed;
     } else if (kind === KIND_CIRCULAR) {
-      b.brad[i] = 30 + Math.random() * 90;
-      b.bfreq[i] = 0.1 + Math.random() * 0.7;
+      const rad = 30 + Math.random() * 90;
+      const freq = 0.1 + Math.random() * 0.7;
+      b.brad[i] = rad;
+      b.bfreq[i] = freq;
       b.boriX[i] = t.tx[i];
       b.boriY[i] = t.ty[i];
       b.bphase[i] = Math.random() * Math.PI * 2;
+      const tangential = Math.PI * 2 * freq * rad;
+      if (tangential > world.maxSpeed) world.maxSpeed = tangential;
     } else if (kind === KIND_SPIN) {
       const spinSpeed = -3 + Math.random() * 6;
       b.bspeed[i] = spinSpeed;
       t.tvr[i] = spinSpeed;
     }
+
+    // Track largest possible diagonal half-extent (accounts for rotation).
+    const halfExt = 0.5 * Math.sqrt(
+      (size * t.tsx[i]) * (size * t.tsx[i]) +
+      (size * t.tsy[i]) * (size * t.tsy[i]),
+    );
+    if (halfExt > world.maxHalfExtent) world.maxHalfExtent = halfExt;
 
     return obj;
   }

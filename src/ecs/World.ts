@@ -47,6 +47,12 @@ export class World {
   dirtyTransforms = 0;
   structuralDirty = true;
 
+  // Tracked across all entities for camera frustum padding:
+  //   pad = maxSpeed * dt + maxHalfExtent
+  // Updated by GameObjectFactory at creation time.
+  maxSpeed = 0;
+  maxHalfExtent = 0;
+
   constructor() {
     this.reserve(INITIAL_CAPACITY);
   }
@@ -110,5 +116,7 @@ export class World {
     this.activeCount = 0;
     this.lodMode = false;
     this.structuralDirty = true;
+    this.maxSpeed = 0;
+    this.maxHalfExtent = 0;
   }
 }

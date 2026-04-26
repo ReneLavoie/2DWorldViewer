@@ -12,7 +12,10 @@ export class CameraSystem {
   width = 800;
   height = 600;
   zoom = 1;
-  padding = 64;
+  // Frustum padding floor (world units). The actual padding each frame is
+  //   max(paddingFloor, world.maxSpeed * dt + world.maxHalfExtent)
+  // so it expands for fast entities and shrinks for static ones.
+  paddingFloor = 0;
 
   private boundsX = -Infinity;
   private boundsY = -Infinity;
@@ -101,8 +104,12 @@ export class CameraSystem {
   // Choose which entity slots to simulate AND render this frame, populating
   // world.activeIds/activeCount and world.lodMode. Must be called before the
   // simulation systems run so they can iterate only the active subset.
-  beginFrame(world: World): void {
-    const pad = this.padding;
+  beginFrame(world: World, dt: number): void {
+    // Pad the visible rect so entities entering from outside aren't culled
+    // before they cross the screen edge. Driven by the per-frame max travel
+    // distance plus the largest sprite half-extent (for rotation safety).
+    const dynPad = world.maxSpeed * dt + world.maxHalfExtent;
+    const pad = dynPad > this.paddingFloor ? dynPad : this.paddingFloor;
     const vw = this.width / this.zoom;
     const vh = this.height / this.zoom;
     const vx = this.x - pad;

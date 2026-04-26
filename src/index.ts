@@ -102,7 +102,7 @@ async function init() {
     cameraController.update(dt);
 
     // 1) Decide which entities to simulate AND render this frame.
-    camera.beginFrame(world);
+    camera.beginFrame(world, dt);
 
     // 2) Simulate only the active subset.
     behaviorSystem.update(world, dt);
