@@ -39,8 +39,13 @@ export class CameraController {
   private zoomInfo: HTMLElement | null = null;
   private countInfo: HTMLElement | null = null;
   private drawsInfo: HTMLElement | null = null;
+  private fpsInfo: HTMLElement | null = null;
   private getCount: () => number = () => 0;
   private getDrawCalls: () => number = () => 0;
+
+  // FPS tracking via exponential moving average (smooths out frame jitter).
+  private fpsEma = 0;
+  private fpsLastUpdate = 0;
 
   private activePans = new Set<string>();
   private activeZooms = new Set<string>();
@@ -66,6 +71,7 @@ export class CameraController {
     this.zoomInfo = overlay.querySelector<HTMLElement>('#ui-zoom');
     this.countInfo = overlay.querySelector<HTMLElement>('#ui-count');
     this.drawsInfo = overlay.querySelector<HTMLElement>('#ui-draws');
+    this.fpsInfo = overlay.querySelector<HTMLElement>('#ui-fps');
 
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -188,6 +194,20 @@ export class CameraController {
     if (this.zoomInfo) this.zoomInfo.textContent = `${this.camera.zoom.toFixed(2)}x`;
     if (this.countInfo) this.countInfo.textContent = String(this.getCount());
     if (this.drawsInfo) this.drawsInfo.textContent = String(this.getDrawCalls());
+
+    // FPS: derive from frame dt, smooth with EMA, throttle DOM updates to 4Hz
+    // so the readout is legible rather than flickering every frame.
+    if (dt > 0) {
+      const inst = 1 / dt;
+      this.fpsEma = this.fpsEma === 0 ? inst : this.fpsEma + (inst - this.fpsEma) * 0.1;
+    }
+    if (this.fpsInfo) {
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      if (now - this.fpsLastUpdate >= 250) {
+        this.fpsLastUpdate = now;
+        this.fpsInfo.textContent = String(Math.round(this.fpsEma));
+      }
+    }
   }
 
   reset(): void {
