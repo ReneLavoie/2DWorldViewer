@@ -35,6 +35,8 @@ export class RenderingSystem {
     @inject(TYPES.World) private readonly world: World,
   ) {
     this.layer.sortableChildren = false;
+    this.layer.cullable = false;
+    this.layer.cullableChildren = false;
   }
 
   attach(stage: Container): void {
@@ -70,6 +72,8 @@ export class RenderingSystem {
         vertex: false,
       },
     });
+    c.cullable = false;
+    c.cullableChildren = false;
     this.container = c;
     this.childrenArr = c.particleChildren as Particle[];
     this.layer.addChild(c as unknown as Container);
