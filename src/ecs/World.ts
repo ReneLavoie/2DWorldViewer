@@ -6,6 +6,8 @@ import { BehaviorComponent } from './components/BehaviorComponent';
 import { SpatialComponent } from './components/SpatialComponent';
 import { RenderComponent } from './components/RenderComponent';
 
+// Re-export behavior kind codes here so consumers only need to import from
+// the World barrel.
 export {
   KIND_LINEAR,
   KIND_SINUSOIDAL,
@@ -15,6 +17,12 @@ export {
 
 const INITIAL_CAPACITY = 1024;
 
+// Central ECS container.
+//
+// Owns all component stores plus the sparse->dense slot mapping (id -> slot
+// index). Designed for SoA iteration: systems read/write component arrays
+// directly via `world.<component>.<field>` rather than going through
+// per-entity objects.
 @injectable()
 export class World {
   // Component stores. Each owns its parallel typed arrays and grows in lockstep
@@ -25,6 +33,8 @@ export class World {
   public readonly spatial = new SpatialComponent();
   public readonly render = new RenderComponent();
 
+  // Iteration order for reserve(): all stores grow together in lockstep so a
+  // valid slot in one is a valid slot in all of them.
   private readonly stores: ComponentStore[] = [
     this.transform,
     this.behavior,
@@ -32,8 +42,11 @@ export class World {
     this.render,
   ];
 
+  // Dense GameObject array indexed by slot. Parallel to component arrays.
   private _objects: GameObject[] = [];
+  // Sparse map: GameObject.id -> slot index in the dense arrays.
   private readonly indexById = new Map<number, number>();
+  // Monotonic id counter; never reused even after entities are removed.
   private _nextId = 1;
 
   public capacity = 0;
@@ -45,7 +58,11 @@ export class World {
   // When true, simulation iterates `activeIds` instead of the full slot range.
   public lodMode = false;
 
+  // Counter of transforms mutated this frame; consumed by SpatialIndexSystem
+  // to skip the re-bucket pass entirely when nothing moved.
   public dirtyTransforms = 0;
+  // True when entities were added/removed since the last reset; signals the
+  // spatial index to rebuild from scratch rather than incrementally.
   public structuralDirty = true;
 
   // Tracked across all entities for camera frustum padding:
@@ -58,6 +75,8 @@ export class World {
     this.reserve(INITIAL_CAPACITY);
   }
 
+  // Ensures all component stores plus the active-id buffer can hold at least
+  // `min` slots. Growth is geometric (capacity doubling) to amortise cost.
   public reserve(min: number): void {
     if (min <= this.capacity) return;
     let next = Math.max(this.capacity, 1);
@@ -69,6 +88,8 @@ export class World {
     this.capacity = next;
   }
 
+  // Reserves a dense slot for `obj`, wires up the id->slot map, and gives
+  // every component store a chance to initialise the slot. Returns the slot.
   public allocateSlot(obj: GameObject): number {
     const existing = this.indexById.get(obj.id);
     if (existing !== undefined) return existing;
@@ -105,15 +126,20 @@ export class World {
     return this.size;
   }
 
+  // Allocates a fresh, never-before-used entity id.
   public nextId(): number {
     return this._nextId++;
   }
 
+  // Called at end-of-frame by FrameScheduler to reset the per-frame change
+  // counters used by the spatial index.
   public resetFrameDirty(): void {
     this.dirtyTransforms = 0;
     this.structuralDirty = false;
   }
 
+  // Drops every entity and resets bookkeeping. Component arrays are not
+  // shrunk: their capacity is kept so the next createMany() doesn't realloc.
   public clear(): void {
     this._objects.length = 0;
     this.indexById.clear();

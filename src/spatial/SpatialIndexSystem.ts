@@ -4,12 +4,17 @@ import { Bounds } from './Bounds';
 import { SpatialPyramid } from './SpatialPyramid';
 import { World } from '../ecs/World';
 
+// Facade in front of a multi-resolution spatial index.
+//
+// Exposes a simple update/query API to systems while internally maintaining a
+// SpatialPyramid (several SpatialHashGrids at different cell sizes) so queries
+// can pick the granularity that matches the current viewport.
 @injectable()
 export class SpatialIndexSystem {
   private pyramid: SpatialPyramid;
   private worldBounds: Bounds;
 
-  // Reusable visible-slot output buffer; grown on demand.
+  // Reusable visible-slot output buffer; grown on demand to fit world.size.
   private visibleBuf: Int32Array = new Int32Array(4096);
   private lastVisibleCount = 0;
 
@@ -22,12 +27,16 @@ export class SpatialIndexSystem {
     this.pyramid = new SpatialPyramid(this.world, this.worldBounds, [512, 2048, 8192]);
   }
 
+  // Resets the world rectangle and re-buckets every existing entity. Called
+  // once during boot from index.ts after the bounds are known.
   public setWorldBounds(bounds: Bounds): void {
     this.worldBounds = bounds;
     this.pyramid.setBounds(bounds);
     this.rebuildAll();
   }
 
+  // Bulk re-bucket: pushes every world slot through every pyramid level.
+  // Called once after createMany() to seed the index.
   public rebuildAll(): void {
     const w = this.world;
     const t = w.transform;
@@ -46,6 +55,8 @@ export class SpatialIndexSystem {
     }
   }
 
+  // Per-frame incremental update: re-buckets only the active subset
+  // (entities the camera selected this frame).
   public update(): void {
     const w = this.world;
     const t = w.transform;
@@ -66,6 +77,9 @@ export class SpatialIndexSystem {
     }
   }
 
+  // Returns slot indices that overlap the given world-space rect. The result
+  // buffer is owned by this system; valid until the next query() call.
+  // Use visibleCount() to read the actual element count.
   public query(rx: number, ry: number, rw: number, rh: number): Int32Array {
     if (this.visibleBuf.length < this.world.size) {
       this.visibleBuf = new Int32Array(this.world.size);

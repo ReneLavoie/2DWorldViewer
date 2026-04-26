@@ -4,12 +4,21 @@ import { PerformanceMonitor } from 'pixi-msdf-textfield';
 import { TYPES } from '../di/types';
 import { World } from '../ecs/World';
 
+// Renders the active subset of entities through a single ParticleContainer
+// backed by a runtime-built atlas texture, so the entire world is one batched
+// draw call. Entity transforms are pushed into Particle instances each frame;
+// Particles are pooled per-texture and stale ones are reclaimed periodically
+// to keep memory bounded as the camera moves around.
 @injectable()
 export class RenderingSystem {
   private stage: Container | null = null;
+  // Outer layer carrying the camera transform; the ParticleContainer is its child.
   private layer = new Container();
 
+  // The actual GPU batch. Recreated when the atlas texture changes.
   private container: ParticleContainer | null = null;
+  // Direct handle on the ParticleContainer's child array; we resize it in place
+  // each frame to avoid Pixi's add/removeChild overhead.
   private childrenArr: Particle[] = [];
   private atlasTexture: Texture | null = null;
 
@@ -27,13 +36,17 @@ export class RenderingSystem {
   private readonly sweepIntervalFrames = 300; // ~5s
   private readonly staleThresholdFrames = 600; // ~10s
 
-  // Per-texture-index pool of reusable Particle instances.
+  // Per-texture-index pool of reusable Particle instances. Keyed by texIdx so
+  // we never have to swap a Particle's texture (which Pixi treats as a batch
+  // break in some configurations).
   private pool: Particle[][] = [];
   private readonly maxPoolPerTex = 256;
 
   public constructor(
     @inject(TYPES.World) private readonly world: World,
   ) {
+    // Disable Pixi's per-child sorting and culling: we manage iteration order
+    // and culling ourselves via CameraSystem's active-id selection.
     this.layer.sortableChildren = false;
     this.layer.cullable = false;
     this.layer.cullableChildren = false;
@@ -55,6 +68,9 @@ export class RenderingSystem {
     this.textures = textures;
   }
 
+  // Replaces the atlas texture; rebuilds the ParticleContainer because Pixi
+  // binds the texture at construction time. Pool entries reference the old
+  // atlas so they're discarded too.
   public setAtlasTexture(tex: Texture): void {
     if (this.atlasTexture === tex && this.container !== null) return;
     this.atlasTexture = tex;
@@ -64,6 +80,8 @@ export class RenderingSystem {
     }
     const c = new ParticleContainer({
       texture: tex,
+      // Only position+rotation change per frame; uvs/color/vertex are static
+      // so Pixi can skip uploading them. This is the main throughput knob.
       dynamicProperties: {
         position: true,
         rotation: true,
@@ -81,12 +99,16 @@ export class RenderingSystem {
     this.pool.length = 0;
   }
 
+  // World->screen transform applied via the layer (inverse of camera).
   public setCameraTransform(x: number, y: number, zoom = 1): void {
     this.layer.position.set(-x * zoom, -y * zoom);
     this.layer.scale.set(zoom);
   }
 
   // `slots` holds `count` slot indices into the World's component arrays.
+  // Renders exactly those slots in order, allocating Particles on demand
+  // from per-texture pools and stamping each slot's last-seen frame for
+  // periodic stale sweeping.
   public renderSlots(slots: Int32Array, count: number): void {
     if (!this.stage || !this.container) return;
 
@@ -106,6 +128,7 @@ export class RenderingSystem {
 
     const frame = ++this.frame;
     const worldSize = world.size;
+    // Grow the lastSeen buffer geometrically as the world expands.
     if (this.lastSeen.length < worldSize) {
       const grown = new Uint32Array(Math.max(worldSize, (this.lastSeen.length || 1024) * 2));
       grown.set(this.lastSeen);
@@ -122,6 +145,7 @@ export class RenderingSystem {
       const i = slots[k];
       let p = particles[i];
       if (p === null) {
+        // Slot has no live Particle: reuse one from the pool or allocate.
         const ti = texIdx[i];
         const tex = textures[ti];
         if (tex === undefined) continue;
@@ -142,6 +166,7 @@ export class RenderingSystem {
         particles[i] = p;
       }
 
+      // Push the latest transform into the Particle.
       p.x = tx[i];
       p.y = ty[i];
       p.rotation = trot[i];
@@ -152,6 +177,7 @@ export class RenderingSystem {
       lastSeen[i] = frame;
       tdirty[i] = 0;
     }
+    // Truncate any leftover children slots from a higher-count previous frame.
     if (children.length !== n) children.length = n;
 
     if (frame - this.lastSweepFrame >= this.sweepIntervalFrames) {
@@ -159,10 +185,13 @@ export class RenderingSystem {
       this.sweepStale(worldSize, frame);
     }
 
+    // Tells the ParticleContainer to upload the dirty position/rotation buffers.
     this.container.update();
   }
 
   // Reclaim Particle instances for slots that haven't been rendered recently.
+  // Keeps a bounded per-texture pool so a long zoom-out doesn't accumulate
+  // unbounded GC pressure when the camera comes back.
   private sweepStale(size: number, frame: number): void {
     const threshold = this.staleThresholdFrames;
     if (frame <= threshold) return;

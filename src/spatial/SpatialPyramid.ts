@@ -11,6 +11,7 @@ import { SpatialHashGrid } from './SpatialHashGrid';
 // the camera iterate a handful of huge cells instead of thousands of fine
 // ones; at close zoom-in queries naturally fall back to the finest level.
 export class SpatialPyramid {
+  // Levels sorted from finest to coarsest cell size.
   public readonly levels: SpatialHashGrid[];
 
   // Cap on how many cells a query is willing to walk before falling back to a
@@ -30,10 +31,13 @@ export class SpatialPyramid {
     this.maxCellsPerQuery = maxCellsPerQuery;
   }
 
+  // Propagate bounds change to every level (each grid resizes its cell array).
   public setBounds(bounds: Bounds): void {
     for (let i = 0; i < this.levels.length; i++) this.levels[i].setBounds(bounds);
   }
 
+  // Re-buckets a slot in every level. Each level uses its own cell size, so
+  // they may end up in different cells but represent the same entity.
   public update(slot: number, cx: number, cy: number, hw: number, hh: number): void {
     for (let i = 0; i < this.levels.length; i++) this.levels[i].update(slot, cx, cy, hw, hh);
   }

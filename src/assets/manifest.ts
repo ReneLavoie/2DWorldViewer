@@ -1,5 +1,10 @@
 import type { AssetsManifest } from 'pixi.js';
 
+// Pixi assets manifest grouping textures into bundles loaded at different
+// stages of startup:
+//   - 'loader' is loaded first (currently empty; reserved for splash assets)
+//   - 'game'   contains gameplay textures required for the first frame
+//   - 'ui'     is loaded in the background after the game starts
 export const manifest: AssetsManifest = {
   bundles: [
     {

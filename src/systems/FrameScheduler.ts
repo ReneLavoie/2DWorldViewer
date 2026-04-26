@@ -8,6 +8,13 @@ import { RenderingSystem } from './RenderingSystem';
 import { BackgroundSystem } from './BackgroundSystem';
 import { CameraSystem } from './CameraSystem';
 
+// Drives the per-frame system pipeline in the right order:
+//   1. Camera selects which slots are active for this frame (LOD culling).
+//   2. Behavior + Transform mutate the active subset's transforms.
+//   3. Spatial index re-buckets only what moved (skipped when entire world
+//      is visible because the renderer no longer needs spatial lookups).
+//   4. Camera transform is pushed to the background and entity layers.
+//   5. World's per-frame dirty counters are reset for the next tick.
 @injectable()
 export class FrameScheduler {
   public constructor(
@@ -20,11 +27,13 @@ export class FrameScheduler {
     @inject(TYPES.CameraSystem) private readonly camera: CameraSystem,
   ) {}
 
+  // Propagate viewport size to systems that depend on it.
   public setViewport(width: number, height: number): void {
     this.camera.setViewport(width, height);
     this.background.setViewport(width, height);
   }
 
+  // One simulation + render step. `dt` is in seconds.
   public tick(dt: number): void {
     const world = this.world;
     const camera = this.camera;

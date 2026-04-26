@@ -3,6 +3,16 @@ import { TYPES } from '../di/types';
 import { World } from '../ecs/World';
 import { SpatialIndexSystem } from '../spatial/SpatialIndexSystem';
 
+// Owns the camera (position, zoom, viewport) AND the per-frame entity
+// selection logic that decides which slots are simulated and rendered.
+//
+// Selection strategy:
+//   - When the camera covers the whole world, iterate every slot and apply
+//     a screen-space density LOD (one entity kept per screen cell) so we
+//     stay below `lodCap` regardless of total entity count.
+//   - Otherwise query the SpatialIndexSystem for the visible rect:
+//       - If the visible count fits the budget, use it directly.
+//       - If it overflows, apply the same density LOD on the queried subset.
 @injectable()
 export class CameraSystem {
   public x = 0;
@@ -15,6 +25,7 @@ export class CameraSystem {
   // so it expands for fast entities and shrinks for static ones.
   public paddingFloor = 0;
 
+  // Optional clamp rectangle that prevents the camera from leaving the world.
   private boundsX = -Infinity;
   private boundsY = -Infinity;
   private boundsW = Infinity;
@@ -63,6 +74,8 @@ export class CameraSystem {
     this.clampToBounds();
   }
 
+  // Clamps (x, y) so the visible rect stays inside the world bounds. When the
+  // viewport is larger than the world on an axis, the camera is centered.
   private clamp(x: number, y: number): { x: number; y: number } {
     if (!this.hasBounds) return { x, y };
     const vw = this.width / this.zoom;
@@ -113,6 +126,7 @@ export class CameraSystem {
     const h = vh + pad * 2;
 
     const totalSize = world.size;
+    // Detect "whole world visible" so the spatial index can be skipped.
     this.coversWorld = !this.hasBounds
       ? false
       : vx <= this.boundsX && vy <= this.boundsY &&
@@ -144,6 +158,7 @@ export class CameraSystem {
       this.cellStamp = 0;
     }
     const cellMark = this.cellMark;
+    // Bumping a per-frame stamp lets us reuse cellMark without clearing it.
     const stamp = ++this.cellStamp;
 
     if (this.coversWorld) {
