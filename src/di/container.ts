@@ -10,6 +10,7 @@ import { RenderingSystem } from '../systems/RenderingSystem';
 import { BackgroundSystem } from '../systems/BackgroundSystem';
 import { CameraSystem } from '../systems/CameraSystem';
 import { CameraController } from '../ui/CameraController';
+import { FrameScheduler } from '../systems/FrameScheduler';
 
 export const container = new Container({ defaultScope: 'Singleton' });
 
@@ -23,3 +24,4 @@ container.bind<RenderingSystem>(TYPES.RenderingSystem).to(RenderingSystem);
 container.bind<BackgroundSystem>(TYPES.BackgroundSystem).to(BackgroundSystem);
 container.bind<CameraSystem>(TYPES.CameraSystem).to(CameraSystem);
 container.bind<CameraController>(TYPES.CameraController).to(CameraController);
+container.bind<FrameScheduler>(TYPES.FrameScheduler).to(FrameScheduler);

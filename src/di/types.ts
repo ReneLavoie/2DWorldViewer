@@ -9,4 +9,5 @@ export const TYPES = {
   BackgroundSystem: Symbol.for('BackgroundSystem'),
   CameraSystem: Symbol.for('CameraSystem'),
   CameraController: Symbol.for('CameraController'),
+  FrameScheduler: Symbol.for('FrameScheduler'),
 } as const;

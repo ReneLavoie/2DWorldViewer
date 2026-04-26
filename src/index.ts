@@ -6,11 +6,10 @@ import { AssetLoader } from './assets/AssetLoader';
 import { World } from './ecs/World';
 import { GameObjectFactory } from './ecs/GameObjectFactory';
 import { SpatialIndexSystem } from './spatial/SpatialIndexSystem';
-import { TransformSystem } from './systems/TransformSystem';
-import { BehaviorSystem } from './systems/BehaviorSystem';
 import { RenderingSystem } from './systems/RenderingSystem';
 import { BackgroundSystem } from './systems/BackgroundSystem';
 import { CameraSystem } from './systems/CameraSystem';
+import { FrameScheduler } from './systems/FrameScheduler';
 import { CameraController } from './ui/CameraController';
 import { AtlasRegistry } from './rendering/AtlasRegistry';
 import { DrawCallCounter } from './rendering/DrawCallCounter';
@@ -46,11 +45,6 @@ async function init() {
   }
   let lastDrawCalls = 0;
 
-  window.addEventListener('resize', () => {
-    app.renderer.resize(window.innerWidth, window.innerHeight);
-    camera.setViewport(window.innerWidth, window.innerHeight);
-  });
-
   const assetLoader = container.get<AssetLoader>(TYPES.AssetLoader);
 
   await assetLoader.init();
@@ -64,21 +58,25 @@ async function init() {
   const world = container.get<World>(TYPES.World);
   const factory = container.get<GameObjectFactory>(TYPES.GameObjectFactory);
   const spatialIndex = container.get<SpatialIndexSystem>(TYPES.SpatialIndexSystem);
-  const transformSystem = container.get<TransformSystem>(TYPES.TransformSystem);
-  const behaviorSystem = container.get<BehaviorSystem>(TYPES.BehaviorSystem);
   const rendering = container.get<RenderingSystem>(TYPES.RenderingSystem);
   const background = container.get<BackgroundSystem>(TYPES.BackgroundSystem);
   const camera = container.get<CameraSystem>(TYPES.CameraSystem);
   const cameraController = container.get<CameraController>(TYPES.CameraController);
+  const scheduler = container.get<FrameScheduler>(TYPES.FrameScheduler);
 
   const worldBounds = { x: -10000, y: -10000, width: 20000, height: 20000 };
   spatialIndex.setWorldBounds(worldBounds);
   camera.setWorldBounds(worldBounds);
-  camera.setViewport(window.innerWidth, window.innerHeight);
+  scheduler.setViewport(window.innerWidth, window.innerHeight);
+  background.init(window.innerWidth, window.innerHeight);
 
   background.attach(app.stage);
-  background.init(window.innerWidth, window.innerHeight);
   rendering.attach(app.stage);
+
+  window.addEventListener('resize', () => {
+    app.renderer.resize(window.innerWidth, window.innerHeight);
+    scheduler.setViewport(window.innerWidth, window.innerHeight);
+  });
 
   const gameObjAliases = [
     'blue_swirl',
@@ -117,25 +115,8 @@ async function init() {
     drawCalls.begin();
 
     cameraController.update(dt);
-
-    //Decide which entities to simulate AND render this frame.
-    camera.beginFrame(world, dt);
-
-    //Simulate only the active subset.
-    behaviorSystem.update(world, dt);
-    transformSystem.update(world, dt);
-
-    //Re-bucket only the simulated subset; skip when the camera covers the
-    //    whole world (rendering uses stride sampling, not the spatial grid).
-    if (!camera.isCoveringWorld() && world.dirtyTransforms > 0) {
-      spatialIndex.update();
-    }
-
-    //Push camera transform and render the active subset.
-    camera.flush(world);
-
-    world.resetFrameDirty();
+    scheduler.tick(dt);
   });
 }
 
-init();
+init().catch((err) => console.error('[2DWorldViewer] init failed', err));

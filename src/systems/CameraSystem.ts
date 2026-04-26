@@ -2,8 +2,6 @@ import { inject, injectable } from 'inversify';
 import { TYPES } from '../di/types';
 import { World } from '../ecs/World';
 import { SpatialIndexSystem } from '../spatial/SpatialIndexSystem';
-import { RenderingSystem } from './RenderingSystem';
-import { BackgroundSystem } from './BackgroundSystem';
 
 @injectable()
 export class CameraSystem {
@@ -37,14 +35,11 @@ export class CameraSystem {
 
   constructor(
     @inject(TYPES.SpatialIndexSystem) private readonly spatialIndex: SpatialIndexSystem,
-    @inject(TYPES.RenderingSystem) private readonly rendering: RenderingSystem,
-    @inject(TYPES.BackgroundSystem) private readonly background: BackgroundSystem,
   ) {}
 
   setViewport(width: number, height: number): void {
     this.width = width;
     this.height = height;
-    this.background.setViewport(width, height);
     this.clampToBounds();
   }
 
@@ -202,14 +197,6 @@ export class CameraSystem {
     }
     world.activeCount = n;
     world.lodMode = true;
-  }
-
-  // After simulation has updated transforms for active slots, push the camera
-  // transform and render those slots.
-  flush(world: World): void {
-    this.background.setCamera(this.x, this.y, this.zoom);
-    this.rendering.setCameraTransform(this.x, this.y, this.zoom);
-    this.rendering.renderSlots(world.activeIds, world.activeCount);
   }
 
   // Whether the previous beginFrame() determined the camera covers the whole world.
