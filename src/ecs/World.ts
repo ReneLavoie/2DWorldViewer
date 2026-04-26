@@ -34,6 +34,7 @@ export class World {
 
   private _objects: GameObject[] = [];
   private indexById = new Map<number, number>();
+  private _nextId = 1;
 
   capacity = 0;
   size = 0;
@@ -104,6 +105,10 @@ export class World {
     return this.size;
   }
 
+  nextId(): number {
+    return this._nextId++;
+  }
+
   resetFrameDirty(): void {
     this.dirtyTransforms = 0;
     this.structuralDirty = false;
@@ -118,5 +123,6 @@ export class World {
     this.structuralDirty = true;
     this.maxSpeed = 0;
     this.maxHalfExtent = 0;
+    this._nextId = 1;
   }
 }

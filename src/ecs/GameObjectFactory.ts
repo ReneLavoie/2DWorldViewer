@@ -36,7 +36,7 @@ export class GameObjectFactory {
     const b = world.behavior;
     const r = world.render;
 
-    const obj = new GameObject();
+    const obj = new GameObject(world.nextId());
     world.allocateSlot(obj);
     const i = obj.index;
 
