@@ -1,6 +1,5 @@
 import { inject, injectable } from 'inversify';
 import { Container, Particle, ParticleContainer, Texture } from 'pixi.js';
-import { PerformanceMonitor } from 'pixi-msdf-textfield';
 import { TYPES } from '../di/types';
 import { World } from '../ecs/World';
 
@@ -24,8 +23,6 @@ export class RenderingSystem {
 
   // Slot-textures table parallel to world.render.texIdx.
   private textures: Texture[] = [];
-
-  private perfMonitor: PerformanceMonitor | null = null;
 
   // Frame counter + per-slot last-rendered frame for stale-particle sweeping.
   private frame = 0;
@@ -55,13 +52,6 @@ export class RenderingSystem {
   public attach(stage: Container): void {
     this.stage = stage;
     if (!this.layer.parent) stage.addChild(this.layer);
-    if (this.perfMonitor === null) {
-      this.perfMonitor = new PerformanceMonitor({
-        enableConsole: true,
-        autoAdjust: false,
-      });
-      this.perfMonitor.start();
-    }
   }
 
   public setTextures(textures: Texture[]): void {
