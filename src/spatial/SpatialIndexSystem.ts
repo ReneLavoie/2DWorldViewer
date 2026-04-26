@@ -23,19 +23,18 @@ export class SpatialIndexSystem {
   setWorldBounds(bounds: Bounds): void {
     this.worldBounds = bounds;
     this.grid.setBounds(bounds);
-    // After bounds change every entity must be re-inserted.
     this.rebuildAll();
   }
 
-  // Re-bucket every live entity. Called when bounds change or after bulk add.
   rebuildAll(): void {
     const w = this.world;
-    const tx = w.tx;
-    const ty = w.ty;
-    const tw = w.tw;
-    const th = w.th;
-    const tsx = w.tsx;
-    const tsy = w.tsy;
+    const t = w.transform;
+    const tx = t.tx;
+    const ty = t.ty;
+    const tw = t.tw;
+    const th = t.th;
+    const tsx = t.tsx;
+    const tsy = t.tsy;
     const n = w.size;
     for (let i = 0; i < n; i++) {
       const sx = tsx[i] < 0 ? -tsx[i] : tsx[i];
@@ -44,17 +43,15 @@ export class SpatialIndexSystem {
     }
   }
 
-  // Incremental update: re-bucket only entities that were simulated this
-  // frame (the active LOD subset). Off-screen entities did not move, so
-  // their cells stay correct.
   update(): void {
     const w = this.world;
-    const tx = w.tx;
-    const ty = w.ty;
-    const tw = w.tw;
-    const th = w.th;
-    const tsx = w.tsx;
-    const tsy = w.tsy;
+    const t = w.transform;
+    const tx = t.tx;
+    const ty = t.ty;
+    const tw = t.tw;
+    const th = t.th;
+    const tsx = t.tsx;
+    const tsy = t.tsy;
     const ids = w.activeIds;
     const n = w.activeCount;
     const grid = this.grid;
@@ -67,7 +64,6 @@ export class SpatialIndexSystem {
   }
 
   query(rx: number, ry: number, rw: number, rh: number): Int32Array {
-    // Worst-case: every entity overlaps; ensure capacity.
     if (this.visibleBuf.length < this.world.size) {
       this.visibleBuf = new Int32Array(this.world.size);
     }

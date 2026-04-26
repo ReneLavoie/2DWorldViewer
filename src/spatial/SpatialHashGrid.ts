@@ -3,10 +3,9 @@ import type { World } from '../ecs/World';
 
 // Incremental uniform spatial hash grid backed by typed arrays.
 // - Each entity is bucketed by AABB-center into one cell.
-// - Doubly-linked list per cell uses World's cellPrev/cellNext arrays so
-//   re-bucketing is O(1) without any allocation.
+// - Doubly-linked list per cell uses World's spatial.cellPrev/cellNext arrays
+//   so re-bucketing is O(1) without any allocation.
 // - Insert/update is a no-op when the entity stays in the same cell.
-// - Queries return slot indices into World's SoA.
 export class SpatialHashGrid {
   private invCellSize: number;
   private cols = 0;
@@ -14,10 +13,8 @@ export class SpatialHashGrid {
   private originX = 0;
   private originY = 0;
 
-  // cellHead[c] = first slot in cell c, or -1.
   private cellHead: Int32Array = new Int32Array(0);
 
-  // Largest item half-extent ever inserted; used to pad queries.
   private maxHalfW = 0;
   private maxHalfH = 0;
 
@@ -37,18 +34,17 @@ export class SpatialHashGrid {
     this.rows = Math.max(1, Math.ceil(bounds.height * this.invCellSize));
     this.cellHead = new Int32Array(this.cols * this.rows);
     this.cellHead.fill(-1);
-    // Reset all slot cell indices since cell numbering changed.
     const w = this.world;
     if (w.size > 0) {
-      w.cellIdx.fill(-1, 0, w.size);
-      w.cellPrev.fill(-1, 0, w.size);
-      w.cellNext.fill(-1, 0, w.size);
+      const s = w.spatial;
+      s.cellIdx.fill(-1, 0, w.size);
+      s.cellPrev.fill(-1, 0, w.size);
+      s.cellNext.fill(-1, 0, w.size);
     }
     this.maxHalfW = 0;
     this.maxHalfH = 0;
   }
 
-  // Compute the cell index for a world-space point. Clamps to grid bounds.
   private cellAt(x: number, y: number): number {
     let ix = ((x - this.originX) * this.invCellSize) | 0;
     let iy = ((y - this.originY) * this.invCellSize) | 0;
@@ -57,51 +53,45 @@ export class SpatialHashGrid {
     return iy * this.cols + ix;
   }
 
-  // Insert or relocate a slot. Use the AABB centre and half-extents.
   update(slot: number, cx: number, cy: number, hw: number, hh: number): void {
     if (hw > this.maxHalfW) this.maxHalfW = hw;
     if (hh > this.maxHalfH) this.maxHalfH = hh;
 
     const newCell = this.cellAt(cx, cy);
-    const w = this.world;
-    const oldCell = w.cellIdx[slot];
+    const s = this.world.spatial;
+    const oldCell = s.cellIdx[slot];
     if (oldCell === newCell) return;
 
-    // Unlink from old cell if present.
     if (oldCell !== -1) {
-      const prev = w.cellPrev[slot];
-      const next = w.cellNext[slot];
-      if (prev !== -1) w.cellNext[prev] = next;
+      const prev = s.cellPrev[slot];
+      const next = s.cellNext[slot];
+      if (prev !== -1) s.cellNext[prev] = next;
       else this.cellHead[oldCell] = next;
-      if (next !== -1) w.cellPrev[next] = prev;
+      if (next !== -1) s.cellPrev[next] = prev;
     }
 
-    // Link into head of new cell.
     const head = this.cellHead[newCell];
-    w.cellPrev[slot] = -1;
-    w.cellNext[slot] = head;
-    if (head !== -1) w.cellPrev[head] = slot;
+    s.cellPrev[slot] = -1;
+    s.cellNext[slot] = head;
+    if (head !== -1) s.cellPrev[head] = slot;
     this.cellHead[newCell] = slot;
-    w.cellIdx[slot] = newCell;
+    s.cellIdx[slot] = newCell;
   }
 
   remove(slot: number): void {
-    const w = this.world;
-    const cell = w.cellIdx[slot];
+    const s = this.world.spatial;
+    const cell = s.cellIdx[slot];
     if (cell === -1) return;
-    const prev = w.cellPrev[slot];
-    const next = w.cellNext[slot];
-    if (prev !== -1) w.cellNext[prev] = next;
+    const prev = s.cellPrev[slot];
+    const next = s.cellNext[slot];
+    if (prev !== -1) s.cellNext[prev] = next;
     else this.cellHead[cell] = next;
-    if (next !== -1) w.cellPrev[next] = prev;
-    w.cellIdx[slot] = -1;
-    w.cellPrev[slot] = -1;
-    w.cellNext[slot] = -1;
+    if (next !== -1) s.cellPrev[next] = prev;
+    s.cellIdx[slot] = -1;
+    s.cellPrev[slot] = -1;
+    s.cellNext[slot] = -1;
   }
 
-  // Append slot indices whose AABB overlaps the given rect into outSlots[0..n).
-  // Returns the count written. outSlots must be a preallocated Int32Array
-  // (caller can grow it via ensureCapacity-style logic).
   query(rx: number, ry: number, rw: number, rh: number, outSlots: Int32Array): number {
     if (this.world.size === 0) return 0;
 
@@ -123,13 +113,14 @@ export class SpatialHashGrid {
     if (cx1 < cx0 || cy1 < cy0) return 0;
 
     const cellHead = this.cellHead;
-    const cellNext = this.world.cellNext;
-    const tx = this.world.tx;
-    const ty = this.world.ty;
-    const tw = this.world.tw;
-    const th = this.world.th;
-    const tsx = this.world.tsx;
-    const tsy = this.world.tsy;
+    const t = this.world.transform;
+    const cellNext = this.world.spatial.cellNext;
+    const tx = t.tx;
+    const ty = t.ty;
+    const tw = t.tw;
+    const th = t.th;
+    const tsx = t.tsx;
+    const tsy = t.tsy;
     const cols = this.cols;
     const rxEnd = rx + rw;
     const ryEnd = ry + rh;

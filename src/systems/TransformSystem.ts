@@ -6,13 +6,14 @@ export class TransformSystem {
   update(world: World, dt: number): void {
     const ids = world.activeIds;
     const n = world.activeCount;
-    const tx = world.tx;
-    const ty = world.ty;
-    const trot = world.trot;
-    const tvx = world.tvx;
-    const tvy = world.tvy;
-    const tvr = world.tvr;
-    const tdirty = world.tdirty;
+    const t = world.transform;
+    const tx = t.tx;
+    const ty = t.ty;
+    const trot = t.trot;
+    const tvx = t.tvx;
+    const tvy = t.tvy;
+    const tvr = t.tvr;
+    const tdirty = t.tdirty;
 
     let dirty = 0;
     for (let k = 0; k < n; k++) {

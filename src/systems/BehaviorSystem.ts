@@ -1,5 +1,6 @@
 import { injectable } from 'inversify';
-import { World, KIND_SINUSOIDAL, KIND_CIRCULAR } from '../ecs/World';
+import { World } from '../ecs/World';
+import { KIND_SINUSOIDAL, KIND_CIRCULAR } from '../ecs/components/BehaviorComponent';
 import { fcos, fsin } from './FastTrig';
 
 const TWO_PI = Math.PI * 2;
@@ -7,24 +8,25 @@ const TWO_PI = Math.PI * 2;
 @injectable()
 export class BehaviorSystem {
   update(world: World, dt: number): void {
-    const tx = world.tx;
-    const ty = world.ty;
-    const tvx = world.tvx;
-    const tvy = world.tvy;
-    const tdirty = world.tdirty;
-    const bkind = world.bkind;
-    const belapsed = world.belapsed;
-    const bspeed = world.bspeed;
-    const bamp = world.bamp;
-    const bfreq = world.bfreq;
-    const brad = world.brad;
-    const boriX = world.boriX;
-    const boriY = world.boriY;
-    const bphase = world.bphase;
+    const t = world.transform;
+    const b = world.behavior;
+    const tx = t.tx;
+    const ty = t.ty;
+    const tvx = t.tvx;
+    const tvy = t.tvy;
+    const tdirty = t.tdirty;
+    const bkind = b.bkind;
+    const belapsed = b.belapsed;
+    const bspeed = b.bspeed;
+    const bamp = b.bamp;
+    const bfreq = b.bfreq;
+    const brad = b.brad;
+    const boriX = b.boriX;
+    const boriY = b.boriY;
+    const bphase = b.bphase;
 
     let dirty = 0;
 
-    // Single pass over active slots, branching on behavior kind.
     const ids = world.activeIds;
     const n = world.activeCount;
     for (let k = 0; k < n; k++) {

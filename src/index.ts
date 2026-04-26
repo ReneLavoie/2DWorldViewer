@@ -29,7 +29,10 @@ async function init() {
     autoDensity: false,
     antialias: false,
     powerPreference: 'high-performance',
+    // Prefer WebGPU; Pixi v8 transparently falls back to WebGL when unavailable.
+    preference: 'webgpu',
   });
+  console.log(`[2DWorldViewer] renderer: ${app.renderer.type}`);
 
   window.addEventListener('resize', () => {
     app.renderer.resize(window.innerWidth, window.innerHeight);

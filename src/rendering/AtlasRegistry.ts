@@ -78,20 +78,20 @@ export class AtlasRegistry {
     for (let i = 0; i < sorted.length; i++) {
       const e = sorted[i];
       const r = rects[i];
-      const src = e.texture.source;
-      const resource = (src as unknown as { resource?: TexImageSource }).resource;
+      const src = e.texture.source as unknown as { resource?: CanvasImageSource };
+      const resource = src.resource;
       if (!resource) {
         throw new Error(`AtlasRegistry: texture '${e.alias}' has no drawable resource (not loaded yet?)`);
       }
       const frame = e.texture.frame;
       if (frame) {
         ctx.drawImage(
-          resource as CanvasImageSource,
+          resource,
           frame.x, frame.y, frame.width, frame.height,
           r.x, r.y, r.w, r.h,
         );
       } else {
-        ctx.drawImage(resource as CanvasImageSource, r.x, r.y, r.w, r.h);
+        ctx.drawImage(resource, r.x, r.y, r.w, r.h);
       }
     }
 

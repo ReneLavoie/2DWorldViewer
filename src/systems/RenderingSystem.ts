@@ -2,7 +2,6 @@ import { inject, injectable } from 'inversify';
 import { Container, Particle, ParticleContainer, Texture } from 'pixi.js';
 import { PerformanceMonitor } from 'pixi-msdf-textfield';
 import { TYPES } from '../di/types';
-import { AssetLoader } from '../assets/AssetLoader';
 import { World } from '../ecs/World';
 
 @injectable()
@@ -14,16 +13,14 @@ export class RenderingSystem {
   private childrenArr: Particle[] = [];
   private atlasTexture: Texture | null = null;
 
-  // Slot-textures table parallel to world.texIdx.
+  // Slot-textures table parallel to world.render.texIdx.
   private textures: Texture[] = [];
 
   private perfMonitor: PerformanceMonitor | null = null;
 
   constructor(
-    @inject(TYPES.AssetLoader) private readonly _assets: AssetLoader,
     @inject(TYPES.World) private readonly world: World,
   ) {
-    void this._assets;
     this.layer.sortableChildren = false;
   }
 
@@ -50,9 +47,6 @@ export class RenderingSystem {
       this.layer.removeChild(this.container as unknown as Container);
       this.container.destroy();
     }
-    // Only position and rotation change frame-to-frame. UVs/color/vertex are
-    // baked at particle creation, so mark them static to avoid per-frame
-    // GPU buffer uploads for those attributes.
     const c = new ParticleContainer({
       texture: tex,
       dynamicProperties: {
@@ -73,20 +67,22 @@ export class RenderingSystem {
     this.layer.scale.set(zoom);
   }
 
-  // `slots` holds `count` slot indices into the World's SoA arrays.
+  // `slots` holds `count` slot indices into the World's component arrays.
   renderSlots(slots: Int32Array, count: number): void {
     if (!this.stage || !this.container) return;
 
     const world = this.world;
-    const tx = world.tx;
-    const ty = world.ty;
-    const trot = world.trot;
-    const tsx = world.tsx;
-    const tsy = world.tsy;
-    const tdirty = world.tdirty;
-    const texIdx = world.texIdx;
-    const tints = world.tint;
-    const particles = world.particles;
+    const t = world.transform;
+    const r = world.render;
+    const tx = t.tx;
+    const ty = t.ty;
+    const trot = t.trot;
+    const tsx = t.tsx;
+    const tsy = t.tsy;
+    const tdirty = t.tdirty;
+    const texIdx = r.texIdx;
+    const tints = r.tint;
+    const particles = r.particles;
     const textures = this.textures;
 
     const children = this.childrenArr;
