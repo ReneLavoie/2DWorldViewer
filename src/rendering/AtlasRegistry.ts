@@ -20,15 +20,45 @@ function nextPow2(v: number): number {
   return n;
 }
 
+function hashEntries(entries: AtlasEntry[]): string {
+  const parts: string[] = [];
+  for (const e of entries) {
+    const t = e.texture;
+    const src = t.source as unknown as { uid?: number | string; width?: number; height?: number };
+    const f = t.frame;
+    const fx = f ? f.x | 0 : 0;
+    const fy = f ? f.y | 0 : 0;
+    const fw = (f?.width ?? t.width) | 0;
+    const fh = (f?.height ?? t.height) | 0;
+    const sid = src.uid ?? `${src.width ?? 0}x${src.height ?? 0}`;
+    parts.push(`${e.alias}|${sid}|${fx},${fy},${fw},${fh}`);
+  }
+  return parts.join(';');
+}
+
 export class AtlasRegistry {
   private atlasTexture: Texture | null = null;
   private subTextures = new Map<Texture, Texture>();
   private subByAlias = new Map<string, Texture>();
+  private lastEntriesHash: string | null = null;
 
   build(entries: AtlasEntry[]): Texture {
     if (entries.length === 0) {
       throw new Error('AtlasRegistry.build requires at least one entry');
     }
+
+    const entriesHash = hashEntries(entries);
+    if (this.atlasTexture && this.lastEntriesHash === entriesHash) {
+      return this.atlasTexture;
+    }
+
+    if (this.atlasTexture) {
+      for (const sub of this.subByAlias.values()) sub.destroy(false);
+      this.atlasTexture.destroy(true);
+      this.atlasTexture = null;
+    }
+    this.subTextures.clear();
+    this.subByAlias.clear();
 
     const sorted = entries.slice().sort((a, b) => {
       const ah = (a.texture.frame?.height ?? a.texture.height) | 0;
@@ -111,6 +141,7 @@ export class AtlasRegistry {
       this.subByAlias.set(e.alias, sub);
     }
 
+    this.lastEntriesHash = entriesHash;
     return atlasTex;
   }
 
