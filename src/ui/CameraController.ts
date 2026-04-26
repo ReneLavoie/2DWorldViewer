@@ -8,6 +8,8 @@ export interface CameraControllerOptions {
   zoomStep?: number;
   minZoom?: number;
   maxZoom?: number;
+  panSmoothing?: number;
+  zoomSmoothing?: number;
 }
 
 @injectable()
@@ -20,6 +22,17 @@ export class CameraController {
   private zoomStep = 1.15;
   private minZoom = 0.05;
   private maxZoom = 4;
+
+  // Exponential smoothing rates (per second). Larger = stiffer / less inertia.
+  // Time-constant ~= 1 / rate. ~18 -> ~55ms settle, feels responsive but smooth.
+  private panSmoothing = 18;
+  private zoomSmoothing = 14;
+
+  // Target state. Camera lerps toward these every frame in update().
+  private targetX = 0;
+  private targetY = 0;
+  private targetZoom = 1;
+  private targetInit = false;
 
   private target: HTMLElement | null = null;
   private camInfo: HTMLElement | null = null;
@@ -39,6 +52,8 @@ export class CameraController {
     if (opts.zoomStep !== undefined) this.zoomStep = opts.zoomStep;
     if (opts.minZoom !== undefined) this.minZoom = opts.minZoom;
     if (opts.maxZoom !== undefined) this.maxZoom = opts.maxZoom;
+    if (opts.panSmoothing !== undefined) this.panSmoothing = opts.panSmoothing;
+    if (opts.zoomSmoothing !== undefined) this.zoomSmoothing = opts.zoomSmoothing;
   }
 
   attach(target: HTMLElement, overlay: HTMLElement, getObjectCount?: () => number): void {
@@ -95,6 +110,13 @@ export class CameraController {
   }
 
   update(dt: number): void {
+    if (!this.targetInit) {
+      this.targetX = this.camera.x;
+      this.targetY = this.camera.y;
+      this.targetZoom = this.camera.zoom;
+      this.targetInit = true;
+    }
+
     let dx = 0;
     let dy = 0;
     if (this.keys.has('arrowleft') || this.keys.has('a') || this.activePans.has('left')) dx -= 1;
@@ -103,17 +125,43 @@ export class CameraController {
     if (this.keys.has('arrowdown') || this.keys.has('s') || this.activePans.has('down')) dy += 1;
     if (dx !== 0 || dy !== 0) {
       const len = Math.hypot(dx, dy) || 1;
-      const amount = (this.panSpeed * dt) / this.camera.zoom;
-      this.camera.setPosition(
-        this.camera.x + (dx / len) * amount,
-        this.camera.y + (dy / len) * amount,
-      );
+      // Pan against target zoom so movement feels consistent regardless of
+      // current animated zoom value.
+      const amount = (this.panSpeed * dt) / this.targetZoom;
+      this.targetX += (dx / len) * amount;
+      this.targetY += (dy / len) * amount;
     }
     if (this.keys.has('q') || this.keys.has('-') || this.activeZooms.has('out')) {
-      this.zoomAt(this.camera.width / 2, this.camera.height / 2, Math.pow(1 / this.zoomStep, dt * 4));
+      this.zoomTargetAt(this.camera.width / 2, this.camera.height / 2, Math.pow(1 / this.zoomStep, dt * 4));
     }
     if (this.keys.has('e') || this.keys.has('=') || this.keys.has('+') || this.activeZooms.has('in')) {
-      this.zoomAt(this.camera.width / 2, this.camera.height / 2, Math.pow(this.zoomStep, dt * 4));
+      this.zoomTargetAt(this.camera.width / 2, this.camera.height / 2, Math.pow(this.zoomStep, dt * 4));
+    }
+
+    // Exponential approach: alpha = 1 - exp(-rate * dt) is framerate-independent.
+    const aPan = 1 - Math.exp(-this.panSmoothing * dt);
+    const aZoom = 1 - Math.exp(-this.zoomSmoothing * dt);
+
+    // Smooth zoom in log-space so multiplicative steps animate uniformly.
+    const curZoom = this.camera.zoom;
+    const logCur = Math.log(curZoom);
+    const logTarget = Math.log(this.targetZoom);
+    let nextZoom = Math.exp(logCur + (logTarget - logCur) * aZoom);
+    if (Math.abs(nextZoom - this.targetZoom) / this.targetZoom < 1e-4) nextZoom = this.targetZoom;
+    if (nextZoom !== curZoom) this.camera.setZoom(nextZoom);
+
+    const nx = this.camera.x + (this.targetX - this.camera.x) * aPan;
+    const ny = this.camera.y + (this.targetY - this.camera.y) * aPan;
+    const snapX = Math.abs(nx - this.targetX) < 1e-3 ? this.targetX : nx;
+    const snapY = Math.abs(ny - this.targetY) < 1e-3 ? this.targetY : ny;
+    this.camera.setPosition(snapX, snapY);
+
+    // Re-sync targets from camera in case setPosition/setZoom clamped them
+    // against world bounds; otherwise targets would drift outside reachable area.
+    this.targetX = this.camera.x + (this.targetX - snapX);
+    this.targetY = this.camera.y + (this.targetY - snapY);
+    if (this.targetZoom !== this.camera.zoom && nextZoom === this.targetZoom) {
+      this.targetZoom = this.camera.zoom;
     }
 
     if (this.camInfo) this.camInfo.textContent = `${Math.round(this.camera.x)}, ${Math.round(this.camera.y)}`;
@@ -122,19 +170,26 @@ export class CameraController {
   }
 
   reset(): void {
-    this.camera.setZoom(1);
-    this.camera.setPosition(0, 0);
+    this.targetX = 0;
+    this.targetY = 0;
+    this.targetZoom = 1;
+    this.targetInit = true;
   }
 
 
-  private zoomAt(screenX: number, screenY: number, factor: number): void {
-    const prev = this.camera.zoom;
-    const next = Math.min(this.maxZoom, Math.max(this.minZoom, prev * factor));
-    if (next === prev) return;
-    const worldX = this.camera.x + screenX / prev;
-    const worldY = this.camera.y + screenY / prev;
-    this.camera.setZoom(next);
-    this.camera.setPosition(worldX - screenX / next, worldY - screenY / next);
+  // Adjust the *target* zoom while keeping the world point under (screenX,screenY)
+  // anchored. We anchor against the live camera so the cursor stays put visually.
+  private zoomTargetAt(screenX: number, screenY: number, factor: number): void {
+    const prevTarget = this.targetZoom;
+    const nextTarget = Math.min(this.maxZoom, Math.max(this.minZoom, prevTarget * factor));
+    if (nextTarget === prevTarget) return;
+    // Anchor in world: where the cursor currently points (using live camera).
+    const liveZoom = this.camera.zoom;
+    const worldX = this.camera.x + screenX / liveZoom;
+    const worldY = this.camera.y + screenY / liveZoom;
+    this.targetZoom = nextTarget;
+    this.targetX = worldX - screenX / nextTarget;
+    this.targetY = worldY - screenY / nextTarget;
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -161,10 +216,9 @@ export class CameraController {
     const dy = e.clientY - this.lastY;
     this.lastX = e.clientX;
     this.lastY = e.clientY;
-    this.camera.setPosition(
-      this.camera.x - dx / this.camera.zoom,
-      this.camera.y - dy / this.camera.zoom,
-    );
+    // Move the target; the camera lerps toward it for a slight glide on release.
+    this.targetX -= dx / this.targetZoom;
+    this.targetY -= dy / this.targetZoom;
   };
 
   private onPointerUp = (): void => {
@@ -177,6 +231,6 @@ export class CameraController {
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
     const factor = e.deltaY < 0 ? this.zoomStep : 1 / this.zoomStep;
-    this.zoomAt(sx, sy, factor);
+    this.zoomTargetAt(sx, sy, factor);
   };
 }
