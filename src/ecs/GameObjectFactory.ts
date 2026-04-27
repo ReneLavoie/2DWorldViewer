@@ -94,7 +94,9 @@ export class GameObjectFactory {
       t.tvx[i] = Math.cos(direction) * speed;
       t.tvy[i] = Math.sin(direction) * speed;
       if (speed > world.maxSpeed) world.maxSpeed = speed;
-    } else if (kind === KIND_SINUSOIDAL) {
+    } 
+    
+    if (kind === KIND_SINUSOIDAL) {
       // Linear x drift plus sine-wave y oscillation. Velocities are zeroed
       // because the BehaviorSystem writes the position directly each frame.
       const sp = 20 + Math.random() * 60;
@@ -106,7 +108,9 @@ export class GameObjectFactory {
       // Peak speed magnitude is sqrt(sp^2 + amp^2) (vertical speed = amp*cos).
       const sinSpeed = Math.sqrt(sp * sp + amp * amp);
       if (sinSpeed > world.maxSpeed) world.maxSpeed = sinSpeed;
-    } else if (kind === KIND_CIRCULAR) {
+    } 
+    
+    if (kind === KIND_CIRCULAR) {
       // Orbits a fixed origin (the spawn position) at constant angular freq.
       const rad = 30 + Math.random() * 90;
       const freq = 0.1 + Math.random() * 0.7;
@@ -118,7 +122,9 @@ export class GameObjectFactory {
       // Tangential speed = 2*pi*r*f, used to bound camera frustum padding.
       const tangential = Math.PI * 2 * freq * rad;
       if (tangential > world.maxSpeed) world.maxSpeed = tangential;
-    } else if (kind === KIND_SPIN) {
+    }
+    
+    if (kind === KIND_SPIN) {
       // Pure rotation in place; spinSpeed may be negative for reverse spin.
       const spinSpeed = -3 + Math.random() * 6;
       b.bspeed[i] = spinSpeed;
@@ -130,6 +136,7 @@ export class GameObjectFactory {
       (size * t.tsx[i]) * (size * t.tsx[i]) +
       (size * t.tsy[i]) * (size * t.tsy[i]),
     );
+    
     if (halfExt > world.maxHalfExtent) world.maxHalfExtent = halfExt;
 
     return obj;

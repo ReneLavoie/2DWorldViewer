@@ -46,7 +46,7 @@ export class World {
   private _objects: GameObject[] = [];
   // Sparse map: GameObject.id -> slot index in the dense arrays.
   private readonly indexById = new Map<number, number>();
-  // Monotonic id counter; never reused even after entities are removed.
+  // Monotonic id counter;
   private _nextId = 1;
 
   public capacity = 0;
